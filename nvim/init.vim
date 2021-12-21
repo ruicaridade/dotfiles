@@ -1,24 +1,37 @@
 call plug#begin('~/.vim/plugged')
 
+" NERDTree
+" File and directory explorer
 Plug 'scrooloose/nerdtree'
 
+" Devicons
+" Display folder and file icons in NERDTree
 Plug 'ryanoasis/vim-devicons'
 
+" Airline
+" Status bar
 Plug 'vim-airline/vim-airline'
 
+" Telescope
+" Full-text searching plugin
 Plug 'nvim-lua/plenary.nvim'
-
 Plug 'nvim-telescope/telescope.nvim'
 
+" Fugitive
+" Git wrapper
 Plug 'tpope/vim-fugitive'
 
+" GitGutter
+" Shows added, removed and modified lines in the buffer gutter
 Plug 'airblade/vim-gitgutter'
 
+" One Dark
+" Color theme
 Plug 'joshdick/onedark.vim'
 
+" CoC
+" Auto-completion with language servers
 Plug 'neoclide/coc.nvim', {'branch': 'release'}
-
-Plug 'jamestthompson3/nvim-remote-containers'
 
 call plug#end()
 
