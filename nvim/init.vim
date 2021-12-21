@@ -21,9 +21,9 @@ Plug 'nvim-telescope/telescope.nvim'
 " Git wrapper
 Plug 'tpope/vim-fugitive'
 
-" GitGutter
+" Git Signs
 " Shows added, removed and modified lines in the buffer gutter
-Plug 'airblade/vim-gitgutter'
+Plug 'lewis6991/gitsigns.nvim'
 
 " One Dark
 " Color theme
@@ -127,6 +127,7 @@ nmap <silent> [g <Plug>(coc-diagnostic-prev)
 nmap <silent> ]g <Plug>(coc-diagnostic-next)
 
 " GoTo code navigation.
+nnoremap <silent><nowait> <space>fs  :<C-u>CocList -I symbols<cr>
 nmap <silent> <leader>gd <Plug>(coc-definition)
 nmap <silent> <leader>gy <Plug>(coc-type-definition)
 nmap <silent> <leader>gi <Plug>(coc-implementation)

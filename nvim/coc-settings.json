@@ -1,4 +1,17 @@
 {
   "python.formatting.provider": "black",
-  "python.linting.pylintEnabled": true
+  "python.linting.pylintEnabled": true,
+
+  "coc.preferences.formatOnSaveFiletypes": [
+    "json",
+    "yaml",
+    "css",
+    "markdown",
+    "typescript",
+    "javascript",
+    "typescriptreact",
+    "javascriptreact"
+  ],
+
+  "prettier.eslintIntegration": true
 }
