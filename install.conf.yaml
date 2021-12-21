@@ -1,0 +1,5 @@
+- clean: ['~']
+
+- link:
+    ~/.config/nvim/init.vim: nvim/init.vim
+
