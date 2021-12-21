@@ -25,9 +25,9 @@ Plug 'tpope/vim-fugitive'
 " Shows added, removed and modified lines in the buffer gutter
 Plug 'lewis6991/gitsigns.nvim'
 
-" One Dark
-" Color theme
+" Color themes
 Plug 'joshdick/onedark.vim'
+Plug 'dracula/vim', { 'as': 'dracula' }
 
 " CoC
 " Auto-completion with language servers
@@ -64,7 +64,7 @@ if exists("g:loaded_webdevicons")
 	call webdevicons#refresh()
 endif
 
-colorscheme onedark
+colorscheme dracula
 
 " NERDTree
 " https://github.com/preservim/nerdtree
