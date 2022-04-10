@@ -10,7 +10,8 @@
     "typescript",
     "javascript",
     "typescriptreact",
-    "javascriptreact"
+    "javascriptreact",
+    "rust"
   ],
 
   "prettier.eslintIntegration": true
