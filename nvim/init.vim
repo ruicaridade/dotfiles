@@ -121,6 +121,7 @@ inoremap <silent><expr> <cr> pumvisible() ? coc#_select_confirm()
 " GoTo code navigation.
 nmap <silent> <leader>gd <Plug>(coc-definition)
 nmap <silent> <leader>gr <Plug>(coc-references)
+nmap <silent> <leader>gs :<C-u>CocList -I symbols<cr>
 
 " Use K to show documentation in preview window.
 nnoremap <silent> K :call <SID>show_documentation()<CR>
@@ -179,4 +180,6 @@ command! -nargs=0 OR   :call     CocAction('runCommand', 'editor.action.organize
 " NOTE: Please see `:h coc-status` for integrations with external plugins that
 " provide custom statusline: lightline.vim, vim-airline.
 set statusline^=%{coc#status()}%{get(b:,'coc_current_function','')}
+
+lua require('config')
 
