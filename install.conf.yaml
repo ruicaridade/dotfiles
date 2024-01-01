@@ -1,0 +1,14 @@
+- defaults:
+    link:
+      if: '[ "$(uname -s)" = "Linux" ]'
+- link:
+    ~/.config/nvim: nvim
+
+- defaults:
+    link:
+      if: '[ "$(uname -s)" != "Linux" ]'
+- link:
+    ~/AppData/Local/nvim: nvim
+
+- shell:
+    - [git submodule update --init --recursive, Installing submodules]
