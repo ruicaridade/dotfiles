@@ -11,4 +11,6 @@ return {
 		main = "ibl",
 		opts = {},
 	},
+	"windwp/nvim-autopairs",
+	"windwp/nvim-ts-autotag",
 }

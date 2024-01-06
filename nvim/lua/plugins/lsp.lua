@@ -24,13 +24,25 @@ return {
 				"j-hui/fidget.nvim",
 				opts = {},
 			},
+			"folke/neodev.nvim",
 		},
 		config = function()
+			require("neodev").setup()
 			local lspconfig = require("lspconfig")
-			local capabilities = require("cmp_nvim_lsp").default_capabilities()
+
+			local capabilities = vim.lsp.protocol.make_client_capabilities()
+			capabilities = require("cmp_nvim_lsp").default_capabilities()
 
 			lspconfig.pyright.setup({
 				capabilities = capabilities,
+				settings = {
+					python = {
+						analysis = {
+							useLibraryCodeForTypes = false,
+							typeCheckingMode = "off",
+						},
+					},
+				},
 			})
 			lspconfig.tsserver.setup({
 				capabilities = capabilities,
@@ -44,27 +56,59 @@ return {
 			vim.keymap.set("n", "<leader>gr", vim.lsp.buf.references, {})
 			vim.keymap.set("n", "<leader>rn", vim.lsp.buf.rename, {})
 			vim.keymap.set({ "n", "v" }, "<leader>ca", vim.lsp.buf.code_action, {})
-			vim.keymap.set("n", "<leader>gf", function()
-				vim.lsp.buf.format({ async = true })
-			end, {})
+
+			vim.o.updatetime = 250
+			vim.api.nvim_create_autocmd({ "CursorHold", "CursorHoldI" }, {
+				group = vim.api.nvim_create_augroup("float_diagnostic", { clear = true }),
+				callback = function()
+					vim.diagnostic.open_float(nil, { focus = false })
+				end,
+			})
 		end,
 	},
 	{
-		"nvimtools/none-ls.nvim",
+		"jay-babu/mason-null-ls.nvim",
+		event = { "BufReadPre", "BufNewFile" },
+		dependencies = {
+			"nvimtools/none-ls.nvim",
+		},
 		config = function()
 			local null_ls = require("null-ls")
-			null_ls.setup({
-				sources = {
-					null_ls.builtins.formatting.stylua,
-					null_ls.builtins.formatting.prettierd,
-					null_ls.builtins.formatting.black,
-					null_ls.builtins.formatting.clang_format,
-					null_ls.builtins.formatting.isort,
-					null_ls.builtins.diagnostics.eslint,
-					null_ls.builtins.diagnostics.mypy,
-					null_ls.builtins.diagnostics.pylint,
-					null_ls.builtins.diagnostics.clang_check,
+			require("mason-null-ls").setup({
+				ensure_installed = {
+					"eslint",
+					"mypy",
+					"flake8",
+					"black",
+					"isort",
+					"prettier",
 				},
+				automatic_installation = false,
+				handlers = {
+					mypy = function()
+						null_ls.register(null_ls.builtins.diagnostics.mypy.with({
+							prefer_local = ".venv/bin",
+						}))
+					end,
+					flake8 = function()
+						null_ls.register(null_ls.builtins.diagnostics.flake8.with({
+							prefer_local = ".venv/bin",
+						}))
+					end,
+					black = function()
+						null_ls.register(null_ls.builtins.formatting.black.with({
+							prefer_local = ".venv/bin",
+						}))
+					end,
+					isort = function()
+						null_ls.register(null_ls.builtins.formatting.isort.with({
+							prefer_local = ".venv/bin",
+						}))
+					end,
+				},
+			})
+			null_ls.setup({
+				debug = true,
 			})
 
 			local format_is_enabled = true
