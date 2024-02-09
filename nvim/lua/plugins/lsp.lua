@@ -22,7 +22,13 @@ return {
 		dependencies = {
 			{
 				"j-hui/fidget.nvim",
-				opts = {},
+				opts = {
+					notification = {
+						window = {
+							winblend = 0,
+						},
+					},
+				},
 			},
 			"folke/neodev.nvim",
 		},
