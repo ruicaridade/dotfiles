@@ -13,6 +13,7 @@ return {
 					"lua_ls",
 					"tsserver",
 					"pyright",
+					"gopls",
 				},
 			})
 		end,
@@ -56,6 +57,9 @@ return {
 			lspconfig.lua_ls.setup({
 				capabilities = capabilities,
 			})
+			lspconfig.gopls.setup({
+				capabilities = capabilities,
+			})
 
 			vim.keymap.set("n", "K", vim.lsp.buf.hover, {})
 			vim.keymap.set("n", "<leader>gd", vim.lsp.buf.definition, {})
@@ -88,6 +92,9 @@ return {
 					"black",
 					"isort",
 					"prettier",
+					"gofumpt",
+					"goimports",
+					"golines",
 				},
 				automatic_installation = false,
 				handlers = {
@@ -113,9 +120,7 @@ return {
 					end,
 				},
 			})
-			null_ls.setup({
-				debug = true,
-			})
+			null_ls.setup({})
 
 			local format_is_enabled = true
 			vim.api.nvim_create_user_command("FormatToggle", function()
