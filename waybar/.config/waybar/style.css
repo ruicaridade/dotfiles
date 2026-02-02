@@ -1,0 +1,236 @@
+/* Import Rosé Pine theme - choose one variant: */
+@import "rose-pine.css";
+/* @import "rose-pine-moon.css"; */
+/* @import "rose-pine-dawn.css"; */
+
+* {
+    font-family: "JetBrainsMono NF", "JetBrainsMono Nerd Font", sans-serif;
+    font-size: 13px;
+    min-height: 0;
+}
+
+window#waybar {
+    background-color: @base;
+    color: @text;
+}
+
+window#waybar.hidden {
+    opacity: 0.2;
+}
+
+#waybar > box {
+    margin: 4px 8px;
+}
+
+/* Common module styling - rounded pills */
+#workspaces,
+#clock,
+#battery,
+#cpu,
+#memory,
+#disk,
+#temperature,
+#backlight,
+#network,
+#pulseaudio,
+#wireplumber,
+#custom-media,
+#tray,
+#mode,
+#idle_inhibitor,
+#scratchpad,
+#power-profiles-daemon,
+#mpd,
+#window {
+    padding: 4px 12px;
+    margin: 2px 3px;
+    border-radius: 10px;
+    background-color: @surface;
+    color: @text;
+}
+
+/* Workspaces */
+#workspaces {
+    padding: 2px 6px;
+    background-color: @surface;
+}
+
+#workspaces button {
+    padding: 2px 8px;
+    margin: 2px;
+    border-radius: 8px;
+    background-color: transparent;
+    color: @muted;
+    border: none;
+}
+
+#workspaces button:hover {
+    background-color: @overlay;
+    color: @text;
+}
+
+#workspaces button.focused,
+#workspaces button.active {
+    background-color: @rose;
+    color: @base;
+}
+
+#workspaces button.urgent {
+    background-color: @love;
+    color: @base;
+}
+
+/* Window title */
+#window {
+    background-color: @surface;
+    color: @subtle;
+}
+
+/* Clock */
+#clock {
+    background-color: @surface;
+    color: @rose;
+    font-weight: bold;
+}
+
+/* System info modules */
+#cpu {
+    background-color: @surface;
+    color: @foam;
+}
+
+#memory {
+    background-color: @surface;
+    color: @iris;
+}
+
+#temperature {
+    background-color: @surface;
+    color: @gold;
+}
+
+#temperature.critical {
+    color: @love;
+}
+
+/* Network */
+#network {
+    background-color: @surface;
+    color: @pine;
+}
+
+#network.disconnected {
+    color: @love;
+}
+
+/* Audio */
+#pulseaudio {
+    background-color: @surface;
+    color: @gold;
+}
+
+#pulseaudio.muted {
+    color: @muted;
+}
+
+#wireplumber {
+    background-color: @surface;
+    color: @rose;
+}
+
+#wireplumber.muted {
+    color: @muted;
+}
+
+/* Battery */
+#battery {
+    background-color: @surface;
+    color: @foam;
+}
+
+#battery.charging, #battery.plugged {
+    color: @foam;
+}
+
+#battery.warning {
+    color: @gold;
+}
+
+#battery.critical {
+    color: @love;
+}
+
+/* Backlight */
+#backlight {
+    background-color: @surface;
+    color: @gold;
+}
+
+/* Tray */
+#tray {
+    background-color: @surface;
+}
+
+#tray > .passive {
+    -gtk-icon-effect: dim;
+}
+
+#tray > .needs-attention {
+    -gtk-icon-effect: highlight;
+}
+
+/* Idle inhibitor */
+#idle_inhibitor {
+    background-color: @surface;
+    color: @subtle;
+}
+
+#idle_inhibitor.activated {
+    color: @foam;
+}
+
+/* Power profiles */
+#power-profiles-daemon {
+    background-color: @surface;
+    color: @text;
+}
+
+#power-profiles-daemon.performance {
+    color: @love;
+}
+
+#power-profiles-daemon.balanced {
+    color: @pine;
+}
+
+#power-profiles-daemon.power-saver {
+    color: @foam;
+}
+
+/* MPD */
+#mpd {
+    background-color: @surface;
+    color: @foam;
+}
+
+#mpd.disconnected {
+    color: @muted;
+}
+
+#mpd.stopped {
+    color: @muted;
+}
+
+#mpd.paused {
+    color: @subtle;
+}
+
+/* Scratchpad */
+#scratchpad {
+    background-color: @surface;
+    color: @iris;
+}
+
+#scratchpad.empty {
+    background-color: transparent;
+}

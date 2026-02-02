@@ -1,0 +1,22 @@
+# Ghostty Configuration
+
+# Theme
+theme = rose-pine
+
+# Font
+font-family = JetBrainsMono Nerd Font
+font-size = 15
+
+# Font rendering
+freetype-load-flags = hinting,autohint
+alpha-blending = linear-corrected
+
+# Line height (1.3)
+adjust-cell-height = 25%
+
+# Window decorations - remove title bar, buttons, etc.
+window-decoration = none
+
+# Window padding
+window-padding-x = 12
+window-padding-y = 12
