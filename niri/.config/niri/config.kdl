@@ -618,6 +618,14 @@ binds {
     Ctrl+Print { screenshot-screen; }
     Alt+Print { screenshot-window; }
 
+    // Mac-style screenshot keybindings using grim/slurp (copied to clipboard)
+    Ctrl+Shift+3 { spawn-sh "grim - | wl-copy"; }
+    Ctrl+Shift+4 { spawn-sh "grim -g \"$(slurp)\" - | wl-copy"; }
+
+    // Screen recording with wf-recorder (toggle on/off)
+    Ctrl+Shift+5 { spawn-sh "pkill -SIGINT wf-recorder || wf-recorder -f ~/Pictures/Screenshots/\"Recording $(date '+%Y-%m-%d %H-%M-%S').mp4\""; }
+    Ctrl+Shift+6 { spawn-sh "pkill -SIGINT wf-recorder || wf-recorder -g \"$(slurp)\" -f ~/Pictures/Screenshots/\"Recording $(date '+%Y-%m-%d %H-%M-%S').mp4\""; }
+
     // Applications such as remote-desktop clients and software KVM switches may
     // request that niri stops processing the keyboard shortcuts defined here
     // so they may, for example, forward the key presses as-is to a remote machine.
