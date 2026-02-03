@@ -1,0 +1,11 @@
+PACKAGES := fuzzel ghostty niri nvim tmux waybar
+
+.PHONY: install uninstall $(PACKAGES)
+
+install: $(PACKAGES)
+
+$(PACKAGES):
+	stow $@
+
+uninstall:
+	stow -D $(PACKAGES)
