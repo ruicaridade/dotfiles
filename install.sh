@@ -74,6 +74,7 @@ PACMAN_PACKAGES=(
     base-devel
     stow
     make
+    unzip
 
     # Fonts (common for waybar/terminal)
     ttf-font-awesome
