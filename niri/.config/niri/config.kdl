@@ -8,6 +8,9 @@
 // https://yalter.github.io/niri/Configuration:-Input
 input {
     keyboard {
+        repeat-delay 250
+        repeat-rate 35
+
         xkb {
             // You can set rules, model, layout, variant and options.
             // For more information, see xkeyboard-config(7).
