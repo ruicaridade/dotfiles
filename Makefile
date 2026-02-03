@@ -1,4 +1,4 @@
-PACKAGES := fuzzel ghostty niri nvim tmux waybar
+PACKAGES := fuzzel ghostty mise niri nvim tmux waybar
 
 .PHONY: install uninstall $(PACKAGES)
 
