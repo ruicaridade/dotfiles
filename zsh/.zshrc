@@ -10,4 +10,4 @@ source $ZSH/oh-my-zsh.sh
 
 alias cc="claude --dangerously-skip-permissions"
 
-eval "$(/usr/sbin/mise activate bash)"
+eval "$(/usr/sbin/mise activate zsh)"
