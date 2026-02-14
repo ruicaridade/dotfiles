@@ -5,7 +5,7 @@ theme = rose-pine
 
 # Font
 font-family = JetBrainsMono Nerd Font
-font-size = 15
+font-size = 14
 
 # Font rendering
 freetype-load-flags = hinting,autohint
