@@ -9,6 +9,7 @@ plugins=(git)
 source $ZSH/oh-my-zsh.sh
 
 alias cc="claude --dangerously-skip-permissions"
+alias openclaw-gateway="ssh -N -L 18789:127.0.0.1:18789 openclaw"
 
 eval "$(/usr/sbin/mise activate zsh)"
 
