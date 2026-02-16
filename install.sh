@@ -58,12 +58,16 @@ PACMAN_PACKAGES=(
     wireplumber
     playerctl
     pavucontrol
+    pulsemixer
 
     # Screenshot & recording
     grim
     slurp
     wl-clipboard
     wf-recorder
+
+    # Network
+    iwd
 
     # System utilities
     brightnessctl
@@ -91,6 +95,13 @@ AUR_PACKAGES=(
 
     # Application launcher
     fuzzel
+
+    # Browser
+    google-chrome
+
+    # Network & Bluetooth
+    bluetui
+    impala
 
     # Runtime version manager
     mise
@@ -132,6 +143,10 @@ if command -v mise &> /dev/null; then
     info "Installing mise runtimes (bun, node, python)..."
     mise install
 fi
+
+# Enable services
+info "Enabling iwd service..."
+sudo systemctl enable --now iwd
 
 # Stow dotfiles
 info "Stowing dotfiles..."
