@@ -1,4 +1,4 @@
-PACKAGES := fuzzel ghostty mise niri nvim tmux waybar zsh
+PACKAGES := discord fuzzel ghostty mise niri nvim tmux waybar zsh
 
 .PHONY: bootstrap install stow uninstall $(PACKAGES)
 
