@@ -55,6 +55,7 @@ PACMAN_PACKAGES=(
     swaybg
 
     # Audio
+    pipewire
     wireplumber
     playerctl
     pavucontrol
@@ -68,6 +69,9 @@ PACMAN_PACKAGES=(
 
     # Network
     iwd
+
+    # Desktop portal
+    xdg-desktop-portal-gnome
 
     # System utilities
     brightnessctl
