@@ -10,7 +10,14 @@
     "modules-center": [
         "clock"
     ],
-    "modules-right": ["pulseaudio"],
+    "modules-right": ["custom/recording", "pulseaudio"],
+    "custom/recording": {
+        "exec": "printf 'REC'",
+        "exec-if": "pgrep -x wf-recorder",
+        "format": "{}",
+        "interval": 1,
+        "tooltip": false
+    },
     "pulseaudio": {
         "format": "{icon} {volume}%",
         "format-muted": "󰝟 muted",

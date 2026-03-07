@@ -32,6 +32,7 @@ window#waybar.hidden {
 #temperature,
 #backlight,
 #network,
+#custom-recording,
 #pulseaudio,
 #wireplumber,
 #custom-media,
@@ -133,6 +134,12 @@ window#waybar.hidden {
 }
 
 /* Audio */
+#custom-recording {
+    background-color: @love;
+    color: @base;
+    font-weight: bold;
+}
+
 #pulseaudio {
     background-color: @surface;
     color: @gold;

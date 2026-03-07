@@ -653,8 +653,12 @@ binds {
     Ctrl+Shift+4 { spawn-sh "grim -g \"$(slurp)\" - | wl-copy"; }
 
     // Screen recording with wf-recorder (toggle on/off)
-    Ctrl+Shift+5 { spawn-sh "pkill -SIGINT wf-recorder || wf-recorder -f ~/Pictures/Screenshots/\"Recording $(date '+%Y-%m-%d %H-%M-%S').mp4\""; }
-    Ctrl+Shift+6 { spawn-sh "pkill -SIGINT wf-recorder || wf-recorder -g \"$(slurp)\" -f ~/Pictures/Screenshots/\"Recording $(date '+%Y-%m-%d %H-%M-%S').mp4\""; }
+    Ctrl+Shift+5 {
+        spawn-sh "notify() { notify-send -a wf-recorder -h string:x-canonical-private-synchronous:wf-recorder \"$@\"; }; dir=\"$HOME/Pictures/Screenshots\"; mkdir -p \"$dir\"; if pgrep -x wf-recorder >/dev/null; then pkill -SIGINT -x wf-recorder && notify \"Recording\" \"Stopping fullscreen capture...\"; else file=\"$dir/Recording $(date '+%Y-%m-%d %H-%M-%S').mp4\"; notify -u critical -t 0 \"Recording\" \"Fullscreen capture in progress\"; wf-recorder -f \"$file\"; notify -u low \"Recording\" \"Saved to $file\"; fi"
+    }
+    Ctrl+Shift+6 {
+        spawn-sh "notify() { notify-send -a wf-recorder -h string:x-canonical-private-synchronous:wf-recorder \"$@\"; }; dir=\"$HOME/Pictures/Screenshots\"; mkdir -p \"$dir\"; if pgrep -x wf-recorder >/dev/null; then pkill -SIGINT -x wf-recorder && notify \"Recording\" \"Stopping area capture...\"; else geometry=\"$(slurp)\"; [ -n \"$geometry\" ] || exit 0; file=\"$dir/Recording $(date '+%Y-%m-%d %H-%M-%S').mp4\"; notify -u critical -t 0 \"Recording\" \"Area capture in progress\"; wf-recorder -g \"$geometry\" -f \"$file\"; notify -u low \"Recording\" \"Saved to $file\"; fi"
+    }
 
     // Applications such as remote-desktop clients and software KVM switches may
     // request that niri stops processing the keyboard shortcuts defined here
