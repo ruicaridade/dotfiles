@@ -2,6 +2,8 @@
 
 set -e
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -67,6 +69,11 @@ PACMAN_PACKAGES=(
     wl-clipboard
     wf-recorder
 
+    # Media viewers
+    loupe
+    mpv
+    xdg-utils
+
     # Network
     iwd
 
@@ -125,6 +132,9 @@ sudo pacman -S --needed --noconfirm "${PACMAN_PACKAGES[@]}"
 
 info "Installing AUR packages..."
 yay -S --needed --noconfirm "${AUR_PACKAGES[@]}"
+
+info "Setting default image and video handlers..."
+bash "$SCRIPT_DIR/scripts/set-default-apps.sh"
 
 # Setup oh-my-zsh if not already configured
 if [[ ! -d "$HOME/.oh-my-zsh" ]]; then
