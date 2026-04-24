@@ -1,6 +1,17 @@
-PACKAGES := discord fuzzel ghostty mise niri nvim tmux waybar zsh
+LINUX_PACKAGES := discord fuzzel ghostty mise niri nvim tmux waybar zsh
+MACOS_PACKAGES := ghostty mise nvim tmux zsh
 
-.PHONY: bootstrap install stow uninstall $(PACKAGES)
+UNAME_S := $(shell uname -s)
+
+ifeq ($(UNAME_S),Darwin)
+PACKAGES ?= $(MACOS_PACKAGES)
+else
+PACKAGES ?= $(LINUX_PACKAGES)
+endif
+
+ALL_PACKAGES := $(LINUX_PACKAGES)
+
+.PHONY: bootstrap install stow uninstall $(ALL_PACKAGES)
 
 bootstrap:
 	./install.sh
