@@ -1,0 +1,23 @@
+{
+  "lastChangelogVersion": "0.70.2",
+  "defaultProvider": "opencode-go",
+  "defaultModel": "kimi-k2.6",
+  "defaultThinkingLevel": "medium",
+  "packages": [
+    "npm:pi-web-access",
+    "npm:pi-mcp-adapter",
+    "npm:pi-powerline-footer"
+  ],
+  "hideThinkingBlock": true,
+  "transport": "auto",
+  "powerline": "ascii",
+  "workingVibe": "theme",
+  "quietStartup": true,
+  "showHardwareCursor": false,
+  "enabledModels": [
+    "openai-codex/gpt-5.4",
+    "openai-codex/gpt-5.5",
+    "opencode-go/kimi-k2.6",
+    "opencode-go/glm-5.1"
+  ]
+}
