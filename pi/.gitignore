@@ -1,0 +1,31 @@
+# Ignore everything by default
+*
+
+# Allow specific root-level config files
+!settings.json
+!keybindings.json
+!models.json
+!AGENTS.md
+!SYSTEM.md
+!APPEND_SYSTEM.md
+!.gitignore
+
+# Allow resource directories and everything in them
+!extensions/
+!extensions/**
+!skills/
+!skills/**
+!prompts/
+!prompts/**
+!themes/
+!themes/**
+
+# Explicitly ignore runtime files (redundant but clear)
+auth.json
+mcp-cache.json
+mcp-npx-cache.json
+
+# Ignore runtime directories
+sessions/
+git/
+npm/
