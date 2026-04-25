@@ -38,6 +38,7 @@ BREW_FORMULAS=(
     neovim
     stow
     mise
+    pi-coding-agent
 )
 
 BREW_CASKS=(
@@ -92,3 +93,4 @@ info "Next steps:"
 echo "  1. Start tmux and press 'prefix + I' to install tmux plugins"
 echo "  2. Open neovim to let lazy.nvim install plugins"
 echo "  3. Run 'mise install' if runtimes weren't installed"
+echo "  4. Run 'pi' — it will auto-install packages from settings.json on first startup"
