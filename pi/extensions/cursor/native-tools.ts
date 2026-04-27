@@ -1,4 +1,31 @@
-import type { ExecServerMessage } from "./proto/agent_pb.ts";
+import { create, toBinary } from "@bufbuild/protobuf";
+import {
+  AgentClientMessageSchema,
+  DeleteResultSchema,
+  DeleteSuccessSchema,
+  ExecClientControlMessageSchema,
+  ExecClientMessageSchema,
+  ExecClientStreamCloseSchema,
+  FetchResultSchema,
+  FetchSuccessSchema,
+  McpResultSchema,
+  McpSuccessSchema,
+  McpTextContentSchema,
+  McpToolResultContentItemSchema,
+  ReadResultSchema,
+  ReadSuccessSchema,
+  ShellResultSchema,
+  ShellStreamExitSchema,
+  ShellStreamSchema,
+  ShellStreamStartSchema,
+  ShellStreamStdoutSchema,
+  ShellSuccessSchema,
+  WriteResultSchema,
+  WriteSuccessSchema,
+  type ExecServerMessage,
+} from "./proto/agent_pb.ts";
+import { frameConnectMessage } from "./protocol.ts";
+import { buildGrepResult } from "./grep-parser.ts";
 
 export type NativeResultType =
   | "readResult"
@@ -180,4 +207,203 @@ export function nativeToPiRedirect(
     };
   }
   return null;
+}
+
+export interface BridgeWriter {
+  write: (data: Uint8Array) => void;
+}
+
+function frameClientMessage(message: { case: string; value: unknown }): Buffer {
+  return frameConnectMessage(
+    toBinary(
+      AgentClientMessageSchema,
+      // biome-ignore lint/suspicious/noExplicitAny: protobuf union
+      create(AgentClientMessageSchema, { message } as any),
+    ),
+  );
+}
+
+function sendStreamClose(bridge: BridgeWriter, execMsgId: number): void {
+  const controlMsg = create(ExecClientControlMessageSchema, {
+    message: {
+      case: "streamClose",
+      value: create(ExecClientStreamCloseSchema, { id: execMsgId }),
+    },
+  });
+  bridge.write(frameClientMessage({ case: "execClientControlMessage", value: controlMsg }));
+}
+
+function sendExecResult(
+  bridge: BridgeWriter,
+  exec: PendingExec,
+  resultCase: string,
+  resultValue: unknown,
+): void {
+  const execClientMessage = create(ExecClientMessageSchema, {
+    id: exec.execMsgId,
+    execId: exec.execId,
+    // biome-ignore lint/suspicious/noExplicitAny: protobuf union
+    message: { case: resultCase as any, value: resultValue as any },
+  });
+  bridge.write(frameClientMessage({ case: "execClientMessage", value: execClientMessage }));
+  sendStreamClose(bridge, exec.execMsgId);
+}
+
+export function sendMcpResultSuccess(
+  bridge: BridgeWriter,
+  exec: PendingExec,
+  content: string,
+): void {
+  const mcpResult = create(McpResultSchema, {
+    result: {
+      case: "success",
+      value: create(McpSuccessSchema, {
+        content: [
+          create(McpToolResultContentItemSchema, {
+            content: { case: "text", value: create(McpTextContentSchema, { text: content }) },
+          }),
+        ],
+        isError: false,
+      }),
+    },
+  });
+  sendExecResult(bridge, exec, "mcpResult", mcpResult);
+}
+
+export function sendMcpResultError(
+  bridge: BridgeWriter,
+  exec: PendingExec,
+  errorMessage: string,
+): void {
+  const mcpResult = create(McpResultSchema, {
+    result: {
+      case: "success",
+      value: create(McpSuccessSchema, {
+        content: [
+          create(McpToolResultContentItemSchema, {
+            content: { case: "text", value: create(McpTextContentSchema, { text: errorMessage }) },
+          }),
+        ],
+        isError: true,
+      }),
+    },
+  });
+  sendExecResult(bridge, exec, "mcpResult", mcpResult);
+}
+
+export function sendNativeResult(bridge: BridgeWriter, exec: PendingExec, content: string): void {
+  const args = exec.nativeArgs ?? {};
+
+  switch (exec.nativeResultType) {
+    case "readResult": {
+      const lines = content.split("\n");
+      const value = create(ReadResultSchema, {
+        result: {
+          case: "success",
+          value: create(ReadSuccessSchema, {
+            path: args.path ?? "",
+            totalLines: lines.length,
+            fileSize: BigInt(new TextEncoder().encode(content).byteLength),
+            truncated: false,
+            output: { case: "content", value: content },
+          }),
+        },
+      });
+      sendExecResult(bridge, exec, "readResult", value);
+      return;
+    }
+    case "writeResult": {
+      const bytes = new TextEncoder().encode(content);
+      const value = create(WriteResultSchema, {
+        result: {
+          case: "success",
+          value: create(WriteSuccessSchema, {
+            path: args.path ?? "",
+            linesCreated: content.split("\n").length,
+            fileSize: bytes.byteLength,
+          }),
+        },
+      });
+      sendExecResult(bridge, exec, "writeResult", value);
+      return;
+    }
+    case "deleteResult": {
+      const value = create(DeleteResultSchema, {
+        result: {
+          case: "success",
+          value: create(DeleteSuccessSchema, { path: args.path ?? "" }),
+        },
+      });
+      sendExecResult(bridge, exec, "deleteResult", value);
+      return;
+    }
+    case "fetchResult": {
+      const value = create(FetchResultSchema, {
+        result: {
+          case: "success",
+          value: create(FetchSuccessSchema, {
+            url: args.url ?? "",
+            content,
+            statusCode: 200,
+          }),
+        },
+      });
+      sendExecResult(bridge, exec, "fetchResult", value);
+      return;
+    }
+    case "shellResult": {
+      const value = create(ShellResultSchema, {
+        result: {
+          case: "success",
+          value: create(ShellSuccessSchema, {
+            command: args.command ?? "",
+            workingDirectory: "",
+            exitCode: 0,
+            signal: "",
+            stdout: content,
+            stderr: "",
+          }),
+        },
+      });
+      sendExecResult(bridge, exec, "shellResult", value);
+      return;
+    }
+    case "shellStreamResult": {
+      const sendStreamEvent = (event: { case: string; value: unknown }) => {
+        bridge.write(
+          frameClientMessage({
+            case: "execClientMessage",
+            value: create(ExecClientMessageSchema, {
+              id: exec.execMsgId,
+              execId: exec.execId,
+              // biome-ignore lint/suspicious/noExplicitAny: protobuf union
+              message: { case: "shellStream" as any, value: create(ShellStreamSchema, { event } as any) },
+            }),
+          }),
+        );
+      };
+      sendStreamEvent({ case: "start", value: create(ShellStreamStartSchema, {}) });
+      if (content) {
+        sendStreamEvent({
+          case: "stdout",
+          value: create(ShellStreamStdoutSchema, { data: content }),
+        });
+      }
+      sendStreamEvent({ case: "exit", value: create(ShellStreamExitSchema, { code: 0 }) });
+      sendStreamClose(bridge, exec.execMsgId);
+      return;
+    }
+    case "grepResult": {
+      const built = buildGrepResult(content, args);
+      if (!built) {
+        sendMcpResultSuccess(bridge, exec, content);
+        return;
+      }
+      sendExecResult(bridge, exec, built.resultCase, built.resultValue);
+      return;
+    }
+    case "lsResult":
+    default:
+      sendMcpResultSuccess(bridge, exec, content);
+  }
 }
