@@ -1,7 +1,7 @@
 {
   "lastChangelogVersion": "0.70.2",
-  "defaultProvider": "openai-codex",
-  "defaultModel": "gpt-5.5",
+  "defaultProvider": "cursor",
+  "defaultModel": "composer-2-fast",
   "defaultThinkingLevel": "high",
   "packages": [
     "npm:pi-web-access",
@@ -35,9 +35,9 @@
   "quietStartup": true,
   "showHardwareCursor": false,
   "enabledModels": [
-    "openai-codex/gpt-5.4",
-    "openai-codex/gpt-5.5",
-    "opencode-go/kimi-k2.6",
-    "opencode-go/glm-5.1"
+    "cursor/gpt-5.5-extra-high",
+    "cursor/gpt-5.5-high",
+    "cursor/gpt-5.5-medium",
+    "cursor/composer-2-fast"
   ]
 }
