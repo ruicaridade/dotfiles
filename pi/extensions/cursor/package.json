@@ -12,7 +12,8 @@
     "@bufbuild/protobuf": "^2.2.5"
   },
   "devDependencies": {
-    "tsx": "^4.19.2",
-    "@types/node": "^22.10.0"
+    "@mariozechner/pi-coding-agent": "^0.70.2",
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.2"
   }
 }
