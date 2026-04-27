@@ -40,7 +40,7 @@ const model = { id: "claude-4.6-sonnet", provider: "cursor", api: "openai-comple
   contextWindow: 200000, maxTokens: 64000,
   cost: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0 } } as unknown as Model<"openai-completions">;
 
-test("text events emit text_start/delta/end and done with stopReason=stop", async () => {
+test("text events emit text deltas and return stop outcome", async () => {
   const session = new FakeSession();
   const stream = createAssistantMessageEventStream();
   const output = makeOutput();
@@ -48,15 +48,14 @@ test("text events emit text_start/delta/end and done with stopReason=stop", asyn
   session.push({ type: "text", text: "hello", isThinking: false });
   session.push({ type: "text", text: " world", isThinking: false });
   session.push({ type: "done" });
-  const result = await pump;
-  assert.equal(result, "done");
-  // Text was buffered into a single content block due to reuse rule.
+  const outcome = await pump;
+  assert.deepEqual(outcome, { kind: "stop" });
+  // Text buffered into a single content block (reuse rule).
   assert.equal(output.content.length, 1);
   assert.equal((output.content[0] as { text: string }).text, "hello world");
-  assert.equal(output.stopReason, "stop");
 });
 
-test("toolCall + batchReady emits done with stopReason=toolUse", async () => {
+test("toolCall + batchReady returns batchReady outcome", async () => {
   const session = new FakeSession();
   const stream = createAssistantMessageEventStream();
   const output = makeOutput();
@@ -69,9 +68,18 @@ test("toolCall + batchReady emits done with stopReason=toolUse", async () => {
     },
   });
   session.push({ type: "batchReady" });
-  const result = await pump;
-  assert.equal(result, "batchReady");
-  assert.equal(output.stopReason, "toolUse");
+  const outcome = await pump;
+  assert.deepEqual(outcome, { kind: "batchReady" });
   assert.equal(output.content.length, 1);
   assert.equal((output.content[0] as { type: string }).type, "toolCall");
+});
+
+test("done with retryable error returns error outcome with retryHint", async () => {
+  const session = new FakeSession();
+  const stream = createAssistantMessageEventStream();
+  const output = makeOutput();
+  const pump = pumpSession(session as any, stream, output, model);
+  session.push({ type: "done", error: "boom", retryHint: "resource_exhausted" });
+  const outcome = await pump;
+  assert.deepEqual(outcome, { kind: "error", message: "boom", retryHint: "resource_exhausted" });
 });

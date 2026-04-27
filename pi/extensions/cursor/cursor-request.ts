@@ -44,7 +44,10 @@ export function buildCursorRequest(args: {
   existingBlobStore?: Map<string, Uint8Array>;
   mcpTools: McpToolDefinition[];
 }): CursorRequestPayload {
-  const blobStore = new Map<string, Uint8Array>(args.existingBlobStore ?? []);
+  // Share the conv.blobStore reference so KV writes the session performs during
+  // streaming propagate back to the conversation cache. The caller mutates this map
+  // across turns; we don't make a defensive copy.
+  const blobStore = args.existingBlobStore ?? new Map<string, Uint8Array>();
   const systemJson = JSON.stringify({ role: "system", content: args.systemPrompt });
   const systemBytes = new TextEncoder().encode(systemJson);
   const systemBlobId = new Uint8Array(createHash("sha256").update(systemBytes).digest());

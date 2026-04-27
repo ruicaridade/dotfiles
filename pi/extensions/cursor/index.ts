@@ -32,7 +32,7 @@ import { parsePiContext, type ParsedContext } from "./pi-context.ts";
 import { buildCursorRequest, deterministicConversationId } from "./cursor-request.ts";
 import { buildMcpToolDefinitions } from "./mcp-tool-defs.ts";
 import { CursorSession, type RetryHint } from "./cursor-session.ts";
-import { pumpSession } from "./pi-stream.ts";
+import { commitBatchReady, commitError, commitStop, pumpSession } from "./pi-stream.ts";
 import { computeRetryDelayMs, retryBudget } from "./retry.ts";
 
 const PROVIDER = "cursor";
@@ -125,8 +125,14 @@ function streamCursor(
         existing.sendToolResults(
           parsed.toolResults.map((r) => ({ toolCallId: r.toolCallId, content: r.content })),
         );
-        const result = await pumpSession(existing, stream, output, model);
-        if (result === "done") bridges.delete(bridgeKey);
+        const outcome = await pumpSession(existing, stream, output, model);
+        if (outcome.kind === "batchReady") {
+          commitBatchReady(stream, output);
+          return;
+        }
+        bridges.delete(bridgeKey);
+        if (outcome.kind === "stop") commitStop(stream, output);
+        else commitError(stream, output, outcome.message);
         return;
       }
 
@@ -158,6 +164,7 @@ function streamCursor(
       const mcpTools = buildMcpToolDefinitions(context.tools);
       let attempt = 0;
       let attemptedFreshState = false;
+      let abortSubscribed = false;
 
       while (true) {
         const payload = buildCursorRequest({
@@ -179,43 +186,62 @@ function streamCursor(
           maxMode: runtimeConfig.maxMode,
           convKey,
           runtimeConfig,
-          onCheckpoint: (bytes, blobStore) => {
+          onCheckpoint: (bytes, _blobStore) => {
             conv!.checkpoint = bytes;
-            for (const [k, v] of blobStore) conv!.blobStore.set(k, v);
+            // payload.blobStore is conv.blobStore by reference, so KV writes already
+            // landed there as they happened. Just bump the access time.
             conv!.lastAccessMs = Date.now();
           },
         });
         bridges.set(bridgeKey, session);
 
-        options?.signal?.addEventListener("abort", () => {
-          session.close();
-          if (!output.errorMessage) emitErrorAndEnd(stream, output, "aborted", "Request aborted");
-        }, { once: true });
+        if (!abortSubscribed) {
+          abortSubscribed = true;
+          options?.signal?.addEventListener("abort", () => {
+            session.close();
+            if (!output.errorMessage) commitError(stream, output, "Request aborted", "aborted");
+          }, { once: true });
+        }
 
-        const result = await pumpSession(session, stream, output, model);
-        if (result === "batchReady") return; // Session stays alive in bridges map.
+        const outcome = await pumpSession(session, stream, output, model);
+        if (outcome.kind === "batchReady") {
+          commitBatchReady(stream, output);
+          return;
+        }
         bridges.delete(bridgeKey);
 
-        // After done, check whether the session ended with a retryable error.
-        if (output.stopReason !== "error" || !output.errorMessage) return;
+        if (outcome.kind === "stop") {
+          commitStop(stream, output);
+          return;
+        }
+
+        // outcome.kind === "error" — decide retry vs commit.
         const hint: RetryHint | undefined =
-          /timeout/i.test(output.errorMessage) ? "timeout" :
-          /resource_exhausted/i.test(output.errorMessage) ? "resource_exhausted" :
-          /blob not found/i.test(output.errorMessage) ? "blob_not_found" : undefined;
-        if (!hint) return;
+          outcome.retryHint ??
+          (/timeout/i.test(outcome.message) ? "timeout" :
+           /resource_exhausted/i.test(outcome.message) ? "resource_exhausted" :
+           /blob not found/i.test(outcome.message) ? "blob_not_found" : undefined);
+        if (!hint) {
+          commitError(stream, output, outcome.message);
+          return;
+        }
 
         const budget = retryBudget(hint);
         attempt++;
-        if (attempt > budget.maxAttempts) return;
+        if (attempt > budget.maxAttempts) {
+          commitError(stream, output, `${outcome.message} (gave up after ${attempt - 1} retries)`);
+          return;
+        }
         if (budget.freshState && !attemptedFreshState) {
           conv.checkpoint = null;
           conv.blobStore.clear();
           attemptedFreshState = true;
         }
-        // Wait the backoff and retry.
-        await new Promise((r) => setTimeout(r, computeRetryDelayMs(attempt - 1)));
-        delete output.errorMessage;
-        output.stopReason = "stop";
+        const delay = computeRetryDelayMs(attempt - 1);
+        console.warn(
+          `[cursor] retry ${attempt}/${budget.maxAttempts} after ${hint} in ${delay}ms`,
+        );
+        await new Promise((r) => setTimeout(r, delay));
       }
     } catch (err) {
       emitErrorAndEnd(

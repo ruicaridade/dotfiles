@@ -8,17 +8,25 @@ import {
   type ToolCall,
   calculateCost,
 } from "@mariozechner/pi-ai";
-import type { CursorSession, SessionEvent } from "./cursor-session.ts";
+import type { CursorSession, RetryHint, SessionEvent } from "./cursor-session.ts";
 import { createThinkingTagFilter } from "./thinking-filter.ts";
 
-export type PumpResult = "batchReady" | "done";
+export type PumpOutcome =
+  | { kind: "batchReady" }
+  | { kind: "stop" }
+  | { kind: "error"; message: string; retryHint?: RetryHint };
 
+/**
+ * Pump session events into the pi stream. Pushes incremental events (text, thinking,
+ * tool calls) but does NOT push the terminal `done`/`error` event — that's the caller's
+ * responsibility, so retries can happen without a closed stream.
+ */
 export function pumpSession(
   session: Pick<CursorSession, "next">,
   stream: AssistantMessageEventStream,
   output: AssistantMessage,
   model: Model<Api>,
-): Promise<PumpResult> {
+): Promise<PumpOutcome> {
   return (async () => {
     const tagFilter = createThinkingTagFilter();
     let outputTokens = 0;
@@ -72,35 +80,65 @@ export function pumpSession(
         continue;
       }
       if (event.type === "batchReady") {
-        const flushed = tagFilter.flush();
-        if (flushed.reasoning) appendThinking(output, stream, flushed.reasoning);
-        if (flushed.content) appendText(output, stream, flushed.content);
+        flushTagFilter(tagFilter, output, stream);
         closeOpenBlocks(output, stream);
-        output.stopReason = "toolUse";
         applyUsage(output, model, outputTokens, totalTokens);
-        stream.push({ type: "done", reason: "toolUse", message: output });
-        stream.end();
-        return "batchReady";
+        return { kind: "batchReady" };
       }
       if (event.type === "done") {
-        const flushed = tagFilter.flush();
-        if (flushed.reasoning) appendThinking(output, stream, flushed.reasoning);
-        if (flushed.content) appendText(output, stream, flushed.content);
+        flushTagFilter(tagFilter, output, stream);
         closeOpenBlocks(output, stream);
+        applyUsage(output, model, outputTokens, totalTokens);
         if (event.error) {
-          output.stopReason = "error";
-          output.errorMessage = event.error;
-          stream.push({ type: "error", reason: "error", error: output });
-        } else {
-          output.stopReason = "stop";
-          applyUsage(output, model, outputTokens, totalTokens);
-          stream.push({ type: "done", reason: "stop", message: output });
+          return { kind: "error", message: event.error, retryHint: event.retryHint };
         }
-        stream.end();
-        return "done";
+        return { kind: "stop" };
       }
     }
   })();
+}
+
+function flushTagFilter(
+  tagFilter: ReturnType<typeof createThinkingTagFilter>,
+  output: AssistantMessage,
+  stream: AssistantMessageEventStream,
+): void {
+  const flushed = tagFilter.flush();
+  if (flushed.reasoning) appendThinking(output, stream, flushed.reasoning);
+  if (flushed.content) appendText(output, stream, flushed.content);
+}
+
+/** Push the terminal event for a `batchReady` outcome (toolUse stop). */
+export function commitBatchReady(
+  stream: AssistantMessageEventStream,
+  output: AssistantMessage,
+): void {
+  output.stopReason = "toolUse";
+  stream.push({ type: "done", reason: "toolUse", message: output });
+  stream.end();
+}
+
+/** Push the terminal event for a `stop` outcome. */
+export function commitStop(
+  stream: AssistantMessageEventStream,
+  output: AssistantMessage,
+): void {
+  output.stopReason = "stop";
+  stream.push({ type: "done", reason: "stop", message: output });
+  stream.end();
+}
+
+/** Push the terminal event for an `error` outcome. */
+export function commitError(
+  stream: AssistantMessageEventStream,
+  output: AssistantMessage,
+  message: string,
+  reason: "error" | "aborted" = "error",
+): void {
+  output.stopReason = reason;
+  output.errorMessage = message;
+  stream.push({ type: "error", reason, error: output });
+  stream.end();
 }
 
 function applyUsage(
