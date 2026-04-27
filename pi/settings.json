@@ -7,7 +7,8 @@
     "npm:pi-web-access",
     "npm:pi-mcp-adapter",
     "npm:pi-powerline-footer",
-    "npm:@plannotator/pi-extension"
+    "npm:@plannotator/pi-extension",
+    "npm:@netandreus/pi-cursor-provider"
   ],
   "hideThinkingBlock": true,
   "transport": "auto",
