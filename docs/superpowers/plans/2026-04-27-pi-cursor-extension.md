@@ -1622,9 +1622,15 @@ export function parsePiContext(context: Context): ParsedContext {
   }
 
   let lastUserText = "";
-  if (pendingUser) {
+  if (toolResults.length > 0) {
+    // Resume mode: tool results pending. Fold the pending user/assistant pair
+    // into turns and leave lastUserText empty.
+    if (pendingUser) {
+      turns.push({ userText: pendingUser, assistantText: pendingAssistant });
+    }
+  } else if (pendingUser) {
     lastUserText = pendingUser;
-  } else if (turns.length > 0 && toolResults.length === 0) {
+  } else if (turns.length > 0) {
     const last = turns.pop()!;
     lastUserText = last.userText;
   }
