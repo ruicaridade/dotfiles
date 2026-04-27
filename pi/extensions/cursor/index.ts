@@ -1,4 +1,7 @@
 import { createHash } from "node:crypto";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import {
   type Api,
   type AssistantMessage,
@@ -17,7 +20,12 @@ import {
   refreshCursorToken,
 } from "./auth.ts";
 import { getTokenExpiry } from "./jwt.ts";
-import { type CursorModel, getCursorModels, clearModelCache } from "./models.ts";
+import {
+  FALLBACK_MODELS,
+  clearModelCache,
+  getCursorModels,
+  type CursorModel,
+} from "./models.ts";
 import { estimateModelCost } from "./model-cost.ts";
 import { resolveRuntimeConfig } from "./runtime-config.ts";
 import { parsePiContext, type ParsedContext } from "./pi-context.ts";
@@ -266,26 +274,95 @@ async function refreshCursor(creds: OAuthCredentials): Promise<OAuthCredentials>
   return { ...refreshed };
 }
 
-async function discoverModels(): Promise<CursorModel[]> {
-  const token = process.env.CURSOR_ACCESS_TOKEN;
-  if (token) {
-    const result = await getCursorModels(token);
-    return result.models;
-  }
-  // No token at extension load: register with FALLBACK_MODELS via getCursorModels which
-  // returns the fallback set when the upstream RPCs fail without auth.
-  const result = await getCursorModels("");
-  return result.models;
+function getAgentDir(): string {
+  return process.env.PI_CODING_AGENT_DIR || join(homedir(), ".pi", "agent");
 }
 
-export default async function cursorExtension(pi: ExtensionAPI): Promise<void> {
-  const initialModels = await discoverModels();
+interface StoredCursorAuth {
+  access: string;
+  refresh: string;
+  expires: number;
+}
 
+function readStoredCursorAuth(): StoredCursorAuth | null {
+  try {
+    const path = join(getAgentDir(), "auth.json");
+    if (!existsSync(path)) return null;
+    const data = JSON.parse(readFileSync(path, "utf8"));
+    const cred = data?.cursor;
+    if (cred?.type !== "oauth") return null;
+    if (typeof cred.access !== "string" || !cred.access) return null;
+    return {
+      access: cred.access,
+      refresh: typeof cred.refresh === "string" ? cred.refresh : "",
+      expires: typeof cred.expires === "number" ? cred.expires : 0,
+    };
+  } catch {
+    return null;
+  }
+}
+
+const MODEL_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+
+interface CachedModels {
+  fetchedAt: number;
+  models: CursorModel[];
+}
+
+function readCachedModels(): CursorModel[] | null {
+  try {
+    const path = join(getAgentDir(), "cursor-models.cache.json");
+    if (!existsSync(path)) return null;
+    const cache = JSON.parse(readFileSync(path, "utf8")) as CachedModels;
+    if (!cache?.models?.length) return null;
+    if (Date.now() - cache.fetchedAt > MODEL_CACHE_TTL_MS) return null;
+    return cache.models;
+  } catch {
+    return null;
+  }
+}
+
+function writeCachedModels(models: CursorModel[]): void {
+  try {
+    const path = join(getAgentDir(), "cursor-models.cache.json");
+    writeFileSync(path, JSON.stringify({ fetchedAt: Date.now(), models }, null, 2), "utf8");
+  } catch {
+    // Best effort.
+  }
+}
+
+async function getValidAccessToken(): Promise<string | null> {
+  if (process.env.CURSOR_ACCESS_TOKEN) return process.env.CURSOR_ACCESS_TOKEN;
+  const stored = readStoredCursorAuth();
+  if (!stored) return null;
+  if (stored.expires > Date.now()) return stored.access;
+  if (!stored.refresh) return null;
+  try {
+    const refreshed = await refreshCursorToken(stored.refresh);
+    return refreshed.access;
+  } catch {
+    return null;
+  }
+}
+
+async function fetchModelsFromCursor(): Promise<CursorModel[] | null> {
+  const token = await getValidAccessToken();
+  if (!token) return null;
+  try {
+    const result = await getCursorModels(token);
+    if (result.source === "fallback") return null;
+    return result.models;
+  } catch {
+    return null;
+  }
+}
+
+function registerCursorProvider(pi: ExtensionAPI, models: CursorModel[]): void {
   pi.registerProvider(PROVIDER, {
     baseUrl: process.env.CURSOR_API_URL ?? "https://api2.cursor.sh",
     apiKey: "CURSOR_ACCESS_TOKEN",
-    api: "openai-completions", // Pi treats Cursor as OpenAI-shaped externally; streamSimple owns the wire.
-    models: buildProviderModels(initialModels),
+    api: "openai-completions",
+    models: buildProviderModels(models),
     oauth: {
       name: "Cursor",
       login: loginCursor,
@@ -294,27 +371,44 @@ export default async function cursorExtension(pi: ExtensionAPI): Promise<void> {
     },
     streamSimple: streamCursor,
   });
+}
+
+function sameModelIds(a: CursorModel[], b: CursorModel[]): boolean {
+  if (a.length !== b.length) return false;
+  const aIds = new Set(a.map((m) => m.id));
+  for (const m of b) if (!aIds.has(m.id)) return false;
+  return true;
+}
+
+export default function cursorExtension(pi: ExtensionAPI): void {
+  // Synchronous initial registration: cached models if recent, otherwise the upstream fallback list.
+  const cached = readCachedModels();
+  const initialModels = cached ?? FALLBACK_MODELS;
+  registerCursorProvider(pi, initialModels);
+
+  // Background refresh: re-register with live models when the fetch completes.
+  void (async () => {
+    const fresh = await fetchModelsFromCursor();
+    if (!fresh || fresh.length === 0) return;
+    if (cached && sameModelIds(cached, fresh)) return;
+    pi.unregisterProvider(PROVIDER);
+    registerCursorProvider(pi, fresh);
+    writeCachedModels(fresh);
+  })();
 
   pi.registerCommand("cursor-refresh-models", {
     description: "Re-fetch the Cursor model list and re-register the provider",
     handler: async (_args, ctx) => {
       clearModelCache();
-      const models = await discoverModels();
+      const fresh = await fetchModelsFromCursor();
+      if (!fresh) {
+        ctx.ui.notify("Cursor model refresh failed (no token or upstream error)", "error");
+        return;
+      }
       pi.unregisterProvider(PROVIDER);
-      pi.registerProvider(PROVIDER, {
-        baseUrl: process.env.CURSOR_API_URL ?? "https://api2.cursor.sh",
-        apiKey: "CURSOR_ACCESS_TOKEN",
-        api: "openai-completions",
-        models: buildProviderModels(models),
-        oauth: {
-          name: "Cursor",
-          login: loginCursor,
-          refreshToken: refreshCursor,
-          getApiKey: (creds) => creds.access,
-        },
-        streamSimple: streamCursor,
-      });
-      ctx.ui.notify(`Refreshed ${models.length} Cursor models`, "info");
+      registerCursorProvider(pi, fresh);
+      writeCachedModels(fresh);
+      ctx.ui.notify(`Refreshed ${fresh.length} Cursor models`, "info");
     },
   });
 

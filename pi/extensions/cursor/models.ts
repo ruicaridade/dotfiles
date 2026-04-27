@@ -70,63 +70,47 @@ export interface CursorModel {
   maxTokens: number;
 }
 
-const FALLBACK_MODELS: CursorModel[] = [
-  {
-    id: "composer-1",
-    name: prettyCursorModelName("composer-1"),
+function reasoningVariants(
+  baseId: string,
+  contextWindow: number,
+  maxTokens: number,
+  efforts: readonly string[] = ["low", "medium", "high", "extra-high"],
+): CursorModel[] {
+  return efforts.map((effort) => ({
+    id: `${baseId}-${effort}`,
+    name: prettyCursorModelName(`${baseId}-${effort}`),
     reasoning: true,
-    contextWindow: 200_000,
-    maxTokens: 64_000,
-  },
-  {
-    id: "composer-1.5",
-    name: prettyCursorModelName("composer-1.5"),
-    reasoning: true,
-    contextWindow: 1_000_000,
-    maxTokens: 64_000,
-  },
-  {
-    id: "claude-4.6-opus-high",
-    name: prettyCursorModelName("claude-4.6-opus-high"),
-    reasoning: true,
-    contextWindow: 1_000_000,
-    maxTokens: 128_000,
-  },
-  {
-    id: "claude-4.6-sonnet-medium",
-    name: prettyCursorModelName("claude-4.6-sonnet-medium"),
-    reasoning: true,
-    contextWindow: 1_000_000,
-    maxTokens: 64_000,
-  },
-  {
-    id: "claude-4.5-sonnet",
-    name: prettyCursorModelName("claude-4.5-sonnet"),
-    reasoning: true,
-    contextWindow: 1_000_000,
-    maxTokens: 64_000,
-  },
-  {
-    id: "gpt-5.4-medium",
-    name: prettyCursorModelName("gpt-5.4-medium"),
-    reasoning: true,
-    contextWindow: 922_000,
-    maxTokens: 128_000,
-  },
-  {
-    id: "gpt-5.2",
-    name: prettyCursorModelName("gpt-5.2"),
-    reasoning: true,
-    contextWindow: 272_000,
-    maxTokens: 128_000,
-  },
-  {
-    id: "gemini-3.1-pro",
-    name: prettyCursorModelName("gemini-3.1-pro"),
-    reasoning: true,
-    contextWindow: 1_000_000,
-    maxTokens: 64_000,
-  },
+    contextWindow,
+    maxTokens,
+  }));
+}
+
+export const FALLBACK_MODELS: CursorModel[] = [
+  // Composer
+  { id: "composer-1", name: prettyCursorModelName("composer-1"), reasoning: true, contextWindow: 200_000, maxTokens: 64_000 },
+  { id: "composer-1.5", name: prettyCursorModelName("composer-1.5"), reasoning: true, contextWindow: 1_000_000, maxTokens: 64_000 },
+  { id: "composer-2", name: prettyCursorModelName("composer-2"), reasoning: true, contextWindow: 200_000, maxTokens: 64_000 },
+  { id: "composer-2-fast", name: prettyCursorModelName("composer-2-fast"), reasoning: true, contextWindow: 200_000, maxTokens: 64_000 },
+  // Claude
+  ...reasoningVariants("claude-4.6-opus", 1_000_000, 128_000),
+  ...reasoningVariants("claude-4.6-sonnet", 1_000_000, 64_000),
+  ...reasoningVariants("claude-4.5-sonnet", 1_000_000, 64_000),
+  { id: "claude-4.5-haiku", name: prettyCursorModelName("claude-4.5-haiku"), reasoning: true, contextWindow: 200_000, maxTokens: 64_000 },
+  // GPT
+  ...reasoningVariants("gpt-5.5", 400_000, 128_000),
+  ...reasoningVariants("gpt-5.4", 922_000, 128_000),
+  ...reasoningVariants("gpt-5.4-mini", 272_000, 128_000),
+  ...reasoningVariants("gpt-5.3-codex", 272_000, 128_000),
+  { id: "gpt-5.2", name: prettyCursorModelName("gpt-5.2"), reasoning: true, contextWindow: 272_000, maxTokens: 128_000 },
+  { id: "gpt-5.2-codex", name: prettyCursorModelName("gpt-5.2-codex"), reasoning: true, contextWindow: 272_000, maxTokens: 128_000 },
+  { id: "gpt-5.1-codex-max", name: prettyCursorModelName("gpt-5.1-codex-max"), reasoning: true, contextWindow: 272_000, maxTokens: 128_000 },
+  // Gemini
+  { id: "gemini-3.1-pro", name: prettyCursorModelName("gemini-3.1-pro"), reasoning: true, contextWindow: 1_000_000, maxTokens: 64_000 },
+  { id: "gemini-3-pro", name: prettyCursorModelName("gemini-3-pro"), reasoning: true, contextWindow: 1_000_000, maxTokens: 64_000 },
+  { id: "gemini-3-flash", name: prettyCursorModelName("gemini-3-flash"), reasoning: true, contextWindow: 1_000_000, maxTokens: 64_000 },
+  // xAI / Moonshot
+  { id: "grok-4.20", name: prettyCursorModelName("grok-4.20"), reasoning: true, contextWindow: 128_000, maxTokens: 64_000 },
+  { id: "kimi-k2.5", name: prettyCursorModelName("kimi-k2.5"), reasoning: true, contextWindow: 200_000, maxTokens: 64_000 },
 ];
 
 // ---------------------------------------------------------------------------
