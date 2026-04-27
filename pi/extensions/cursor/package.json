@@ -1,0 +1,18 @@
+{
+  "name": "pi-cursor-extension",
+  "private": true,
+  "type": "module",
+  "version": "0.1.0",
+  "description": "Cursor model provider for pi via OAuth + Cursor gRPC API",
+  "scripts": {
+    "test": "node --import tsx --test 'test/**/*.test.ts'",
+    "test:one": "node --import tsx --test"
+  },
+  "dependencies": {
+    "@bufbuild/protobuf": "^2.2.5"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.2",
+    "@types/node": "^22.10.0"
+  }
+}
