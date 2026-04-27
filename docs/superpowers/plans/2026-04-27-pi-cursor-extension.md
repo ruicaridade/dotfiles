@@ -93,7 +93,8 @@
   },
   "devDependencies": {
     "tsx": "^4.19.2",
-    "@types/node": "^22.10.0"
+    "@types/node": "^22.10.0",
+    "@mariozechner/pi-coding-agent": "*"
   }
 }
 ```
