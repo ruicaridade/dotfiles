@@ -8,6 +8,7 @@ test("empty system prompt defaults", () => {
   const p = parsePiContext(ctx);
   assert.equal(p.systemPrompt, "You are a helpful assistant.");
   assert.equal(p.lastUserText, "");
+  assert.equal(p.conversationKeyText, "");
   assert.deepEqual(p.turns, []);
   assert.deepEqual(p.toolResults, []);
 });
@@ -20,6 +21,7 @@ test("single user message → lastUserText, no turns", () => {
   const p = parsePiContext(ctx);
   assert.equal(p.systemPrompt, "Be brief.");
   assert.equal(p.lastUserText, "hello");
+  assert.equal(p.conversationKeyText, "hello");
   assert.deepEqual(p.turns, []);
 });
 
@@ -35,6 +37,7 @@ test("user/assistant pair followed by user → one turn + lastUserText", () => {
   };
   const p = parsePiContext(ctx);
   assert.equal(p.lastUserText, "u2");
+  assert.equal(p.conversationKeyText, "u1");
   assert.deepEqual(p.turns, [{ userText: "u1", assistantText: "a1" }]);
 });
 
@@ -52,9 +55,32 @@ test("trailing toolResult → resume mode, lastUserText empty, toolResults popul
   };
   const p = parsePiContext(ctx);
   assert.equal(p.lastUserText, "");
+  assert.equal(p.conversationKeyText, "u1");
   assert.deepEqual(p.toolResults, [
     { toolCallId: "tc1", content: "file contents", isError: false },
   ]);
+});
+
+test("old toolResult followed by assistant and user does not force resume mode", () => {
+  const ctx: Context = {
+    systemPrompt: "",
+    messages: [
+      { role: "user", content: "u1", timestamp: 1 },
+      { role: "assistant", api: "openai-completions", provider: "x", model: "m",
+        content: [{ type: "toolCall", id: "tc1", name: "read", arguments: { path: "f" } }],
+        usage: zeroUsage(), stopReason: "toolUse", timestamp: 2 },
+      { role: "toolResult", toolCallId: "tc1", toolName: "read",
+        content: [{ type: "text", text: "file contents" }], isError: false, timestamp: 3 },
+      { role: "assistant", api: "openai-completions", provider: "x", model: "m",
+        content: [{ type: "text", text: "a1" }], usage: zeroUsage(), stopReason: "stop", timestamp: 4 },
+      { role: "user", content: "u2", timestamp: 5 },
+    ],
+  };
+  const p = parsePiContext(ctx);
+  assert.equal(p.lastUserText, "u2");
+  assert.equal(p.conversationKeyText, "u1");
+  assert.deepEqual(p.toolResults, []);
+  assert.deepEqual(p.turns, [{ userText: "u1", assistantText: "a1" }]);
 });
 
 test("array text content concatenates with newlines", () => {

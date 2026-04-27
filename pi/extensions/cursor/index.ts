@@ -47,16 +47,26 @@ interface ConvState {
 const bridges = new Map<string, CursorSession>();
 const conversations = new Map<string, ConvState>();
 
-function deriveBridgeKey(modelId: string, parsed: ParsedContext): string {
+function deriveConversationSeed(parsed: ParsedContext, options?: SimpleStreamOptions): string {
+  const sessionId = options?.sessionId?.trim();
+  if (sessionId) return `session:${sessionId}`;
+  return `context:${parsed.conversationKeyText.slice(0, 500)}`;
+}
+
+function deriveBridgeKey(
+  modelId: string,
+  parsed: ParsedContext,
+  options?: SimpleStreamOptions,
+): string {
   return createHash("sha256")
-    .update(`bridge:${modelId}:${parsed.lastUserText.slice(0, 200)}`)
+    .update(`bridge:${modelId}:${deriveConversationSeed(parsed, options)}`)
     .digest("hex")
     .slice(0, 16);
 }
 
-function deriveConvKey(parsed: ParsedContext): string {
+function deriveConvKey(parsed: ParsedContext, options?: SimpleStreamOptions): string {
   return createHash("sha256")
-    .update(`conv:${parsed.lastUserText.slice(0, 200)}`)
+    .update(`conv:${deriveConversationSeed(parsed, options)}`)
     .digest("hex")
     .slice(0, 16);
 }
@@ -116,8 +126,8 @@ function streamCursor(
 
       const runtimeConfig = resolveRuntimeConfig();
       const parsed = parsePiContext(context);
-      const bridgeKey = deriveBridgeKey(model.id, parsed);
-      const convKey = deriveConvKey(parsed);
+      const bridgeKey = deriveBridgeKey(model.id, parsed, options);
+      const convKey = deriveConvKey(parsed, options);
 
       // Resume path: existing alive bridge + tool results.
       const existing = bridges.get(bridgeKey);
@@ -238,9 +248,11 @@ function streamCursor(
           attemptedFreshState = true;
         }
         const delay = computeRetryDelayMs(attempt - 1);
-        console.warn(
-          `[cursor] retry ${attempt}/${budget.maxAttempts} after ${hint} in ${delay}ms`,
-        );
+        if (process.env.CURSOR_PROXY_DEBUG === "1") {
+          console.warn(
+            `[cursor] retry ${attempt}/${budget.maxAttempts} after ${hint} in ${delay}ms`,
+          );
+        }
         await new Promise((r) => setTimeout(r, delay));
       }
     } catch (err) {

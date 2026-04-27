@@ -131,7 +131,7 @@ export class CursorSession implements BridgeWriter {
 
     this.h2Session = h2Connect(connectUrl);
     this.h2Session.on("error", (err) => {
-      logError("CursorSession: h2 session error", { error: err?.message ?? err });
+      this.logTransportError("CursorSession: h2 session error", err);
       this.closeTransport();
       this.finish(CLOSE_ERR);
     });
@@ -168,7 +168,7 @@ export class CursorSession implements BridgeWriter {
       this.finish(CLOSE_OK);
     });
     this.h2Stream.on("error", (err) => {
-      logError("CursorSession: h2 stream error", { error: err?.message ?? err });
+      this.logTransportError("CursorSession: h2 stream error", err);
       this.closeTransport();
       this.finish(CLOSE_ERR);
     });
@@ -205,7 +205,7 @@ export class CursorSession implements BridgeWriter {
     try {
       this.h2Stream.write(data);
     } catch (err) {
-      logError("CursorSession: write failed", { error: String(err) });
+      this.logTransportError("CursorSession: write failed", err);
       this.closeTransport();
       this.finish(CLOSE_ERR);
     }
@@ -260,6 +260,11 @@ export class CursorSession implements BridgeWriter {
     if (this.doneEventSent) return;
     this.doneEventSent = true;
     this.queue.pushForce(event);
+  }
+
+  private logTransportError(message: string, err: unknown): void {
+    if (this.doneEventSent || !this._alive) return;
+    logError(message, { error: err instanceof Error ? err.message : String(err) });
   }
 
   private closeTransport(): void {

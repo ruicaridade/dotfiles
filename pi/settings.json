@@ -1,7 +1,7 @@
 {
   "lastChangelogVersion": "0.70.2",
   "defaultProvider": "cursor",
-  "defaultModel": "composer-2-fast",
+  "defaultModel": "gpt-5.5-high",
   "defaultThinkingLevel": "high",
   "packages": [
     "npm:pi-web-access",

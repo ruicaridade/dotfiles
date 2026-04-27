@@ -10,6 +10,7 @@ export interface ParsedContext {
   systemPrompt: string;
   turns: Array<{ userText: string; assistantText: string }>;
   lastUserText: string;
+  conversationKeyText: string;
   toolResults: Array<{ toolCallId: string; content: string; isError: boolean }>;
 }
 
@@ -35,24 +36,28 @@ function toolResultText(msg: ToolResultMessage): string {
 export function parsePiContext(context: Context): ParsedContext {
   const systemPrompt = (context.systemPrompt ?? "").trim() || "You are a helpful assistant.";
   const turns: Array<{ userText: string; assistantText: string }> = [];
-  const toolResults: Array<{ toolCallId: string; content: string; isError: boolean }> = [];
+  let trailingToolResults: Array<{ toolCallId: string; content: string; isError: boolean }> = [];
   let pendingUser = "";
   let pendingAssistant = "";
+  let firstUserText = "";
 
   for (const msg of context.messages) {
     if (msg.role === "user") {
+      trailingToolResults = [];
       if (pendingUser) {
         turns.push({ userText: pendingUser, assistantText: pendingAssistant });
         pendingAssistant = "";
       }
       pendingUser = textFromContent(msg.content);
+      if (!firstUserText && pendingUser) firstUserText = pendingUser;
     } else if (msg.role === "assistant") {
+      trailingToolResults = [];
       pendingAssistant += msg.content
         .filter((c): c is TextContent => c.type === "text")
         .map((c) => c.text)
         .join("\n");
     } else if (msg.role === "toolResult") {
-      toolResults.push({
+      trailingToolResults.push({
         toolCallId: msg.toolCallId,
         content: toolResultText(msg),
         isError: msg.isError,
@@ -60,8 +65,10 @@ export function parsePiContext(context: Context): ParsedContext {
     }
   }
 
+  const conversationKeyText = firstUserText || pendingUser || turns[0]?.userText || "";
+
   let lastUserText = "";
-  if (toolResults.length > 0) {
+  if (trailingToolResults.length > 0) {
     if (pendingUser) {
       turns.push({ userText: pendingUser, assistantText: pendingAssistant });
     }
@@ -72,5 +79,5 @@ export function parsePiContext(context: Context): ParsedContext {
     lastUserText = last.userText;
   }
 
-  return { systemPrompt, turns, lastUserText, toolResults };
+  return { systemPrompt, turns, lastUserText, conversationKeyText, toolResults: trailingToolResults };
 }
