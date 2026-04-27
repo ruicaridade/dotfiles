@@ -730,11 +730,15 @@ test("flush emits buffered partial tag as text when no closing tag", () => {
   assert.deepEqual(flushed, { content: "<thi", reasoning: "" });
 });
 
-test("flush emits buffered text as reasoning when inside a thinking block", () => {
+test("flush emits buffered partial tag as reasoning when inside thinking", () => {
   const f = createThinkingTagFilter();
-  f.process("<think>partial");
+  // "<think>hi</thi" enters thinking mode (eager emit "hi" as reasoning),
+  // then leaves "</thi" buffered as a partial close-tag.
+  const processed = f.process("<think>hi</thi");
+  assert.deepEqual(processed, { content: "", reasoning: "hi" });
+  // Now we're inThinking with a buffered partial. Flush should emit it as reasoning.
   const flushed = f.flush();
-  assert.deepEqual(flushed, { content: "", reasoning: "partial" });
+  assert.deepEqual(flushed, { content: "", reasoning: "</thi" });
 });
 ```
 
