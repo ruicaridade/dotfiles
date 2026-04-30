@@ -1,14 +1,14 @@
 {
-  "lastChangelogVersion": "0.70.2",
-  "defaultProvider": "cursor",
-  "defaultModel": "gpt-5.5-high",
-  "defaultThinkingLevel": "high",
+  "lastChangelogVersion": "0.70.6",
+  "defaultProvider": "pi-claude-cli",
+  "defaultModel": "claude-opus-4-7",
+  "defaultThinkingLevel": "xhigh",
   "packages": [
     "npm:pi-web-access",
     "npm:pi-mcp-adapter",
     "npm:pi-powerline-footer",
     "npm:@plannotator/pi-extension",
-    "npm:@netandreus/pi-cursor-provider"
+    "npm:pi-claude-cli"
   ],
   "hideThinkingBlock": true,
   "transport": "auto",
@@ -40,6 +40,7 @@
     "cursor/gpt-5.5-extra-high",
     "cursor/gpt-5.5-high",
     "cursor/gpt-5.5-medium",
-    "cursor/composer-2-fast"
+    "cursor/composer-2-fast",
+    "pi-claude-cli/claude-opus-4-7"
   ]
 }
