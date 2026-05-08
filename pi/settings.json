@@ -1,8 +1,8 @@
 {
-  "lastChangelogVersion": "0.70.2",
+  "lastChangelogVersion": "0.74.0",
   "defaultProvider": "openai-codex",
   "defaultModel": "gpt-5.5",
-  "defaultThinkingLevel": "high",
+  "defaultThinkingLevel": "low",
   "packages": [
     "npm:pi-web-access",
     "npm:pi-mcp-adapter",
@@ -38,6 +38,7 @@
     "openai-codex/gpt-5.4",
     "openai-codex/gpt-5.5",
     "opencode-go/kimi-k2.6",
-    "opencode-go/glm-5.1"
+    "opencode-go/glm-5.1",
+    "opencode-go/deepseek-v4-pro"
   ]
 }
