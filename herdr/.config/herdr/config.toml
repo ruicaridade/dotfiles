@@ -1,0 +1,23 @@
+onboarding = false
+[theme]
+name = "rose-pine"
+
+[worktrees]
+directory = "~/.herdr/worktrees"
+
+[keys]
+prefix = "ctrl+b"
+switch_tab = "prefix+1..9"
+switch_workspace = "prefix+shift+1..9"
+focus_agent = "prefix+alt+1..9"
+
+[[keys.command]]
+key = "prefix+alt+g"
+type = "pane"
+command = "lazygit"
+description = "run lazygit"
+
+[ui]
+show_agent_labels_on_pane_borders = false
+sidebar_min_width = 18
+sidebar_max_width = 40

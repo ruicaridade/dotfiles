@@ -1,5 +1,5 @@
 {
-  "lastChangelogVersion": "0.70.6",
+  "lastChangelogVersion": "0.80.2",
   "defaultProvider": "pi-claude-cli",
   "defaultModel": "claude-opus-4-7",
   "defaultThinkingLevel": "xhigh",
@@ -7,10 +7,13 @@
     "npm:pi-web-access",
     "npm:pi-mcp-adapter",
     "npm:pi-powerline-footer",
-    "npm:@plannotator/pi-extension",
+    {
+      "source": "npm:@plannotator/pi-extension",
+      "skills": []
+    },
     "npm:pi-claude-cli"
   ],
-  "hideThinkingBlock": true,
+  "hideThinkingBlock": false,
   "transport": "auto",
   "powerline": {
     "preset": "minimal",
@@ -42,5 +45,6 @@
     "cursor/gpt-5.5-medium",
     "cursor/composer-2-fast",
     "pi-claude-cli/claude-opus-4-7"
-  ]
+  ],
+  "theme": "dark"
 }

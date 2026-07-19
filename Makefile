@@ -1,5 +1,5 @@
-LINUX_PACKAGES := discord fuzzel ghostty mise niri nvim tmux waybar zsh
-MACOS_PACKAGES := ghostty mise nvim tmux zsh
+LINUX_PACKAGES := discord fuzzel ghostty herdr hunk mise niri nvim tmux waybar zsh
+MACOS_PACKAGES := ghostty herdr hunk mise nvim tmux zsh
 
 UNAME_S := $(shell uname -s)
 

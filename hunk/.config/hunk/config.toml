@@ -1,0 +1,4 @@
+# hunk configuration — https://github.com/modem-dev/hunk
+theme = "rose-pine"
+agent_notes = true
+transparent_background = true
