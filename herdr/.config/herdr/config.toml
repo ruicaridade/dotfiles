@@ -12,6 +12,10 @@ switch_workspace = "prefix+shift+1..9"
 focus_agent = "prefix+alt+1..9"
 navigate_workspace_up = "k"
 navigate_workspace_down = "j"
+focus_pane_left = "ctrl+h"
+focus_pane_down = "ctrl+j"
+focus_pane_up = "ctrl+k"
+focus_pane_right = "ctrl+l"
 
 [[keys.command]]
 key = "prefix+alt+g"
