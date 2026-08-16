@@ -46,6 +46,7 @@ fi
 PACMAN_PACKAGES=(
     zsh
     tmux
+    foot
     neovim
     waybar
     swaylock
