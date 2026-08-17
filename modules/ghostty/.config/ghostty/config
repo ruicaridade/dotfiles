@@ -1,20 +1,39 @@
-# Ghostty Configuration
-
-# Theme
-theme = rose-pine
+# Dynamic theme colors
+config-file = ?"~/.local/state/omarchy/current/theme/ghostty.conf"
 
 # Font
-font-family = JetBrainsMono Nerd Font
-font-size = 20
-font-thicken = true
-font-thicken-strength = 50
+font-family = "JetBrainsMono Nerd Font"
+font-style = Medium
+font-size = 15
+# adjust-cell-height = 20%
 
-# Line height (1.3)
-adjust-cell-height = 25%
+# Window
+window-padding-x = 14
+window-padding-y = 14
+confirm-close-surface=false
+resize-overlay = never
 
-# Window decorations - remove title bar, buttons, etc.
-window-decoration = none
+# Cursor stlying
+cursor-style = "block"
+cursor-style-blink = false
+shell-integration-features = no-cursor
 
-# Window padding
-window-padding-x = 12
-window-padding-y = 12
+# Keyboard bindings
+keybind = f11=toggle_fullscreen
+keybind = ctrl+shift+j=unbind
+keybind = shift+insert=paste_from_clipboard
+keybind = control+insert=copy_to_clipboard
+# Send Shift+Enter as CSI-u so TUIs can distinguish it from Enter.
+keybind = shift+enter=csi:13;2u
+# Legacy encoding sends Alt+Shift+Enter the same as Alt+Enter; send CSI-u so tmux can match M-S-Enter.
+keybind = alt+shift+enter=csi:13;4u
+keybind = super+control+shift+alt+arrow_down=resize_split:down,100
+keybind = super+control+shift+alt+arrow_up=resize_split:up,100
+keybind = super+control+shift+alt+arrow_left=resize_split:left,100
+keybind = super+control+shift+alt+arrow_right=resize_split:right,100
+
+# Slowdown mouse scrolling
+mouse-scroll-multiplier = 1.5
+
+# Fix general slowness on hyprland (https://github.com/ghostty-org/ghostty/discussions/3224)
+async-backend = epoll
