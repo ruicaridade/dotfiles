@@ -1,0 +1,113 @@
+# Module declarations for `dots`.
+#
+# Links come from the directory tree under modules/: a module named foot lives
+# at modules/foot, and modules/foot/.config/foot/foot.ini is linked to
+# ~/.config/foot/foot.ini. Only what the tree cannot express lives here.
+#
+#   platforms   limits the module to these runtime.GOOS values; omit for both
+#   pacman/aur  Arch package sources
+#   brew/cask   macOS package sources
+#   post        hooks to run after linking: omz, tpm, mise, chsh, default-apps
+#   links       overrides the tree mapping when the target is not $HOME-shaped
+
+[module.zsh]
+description = "shell"
+pacman      = ["zsh"]
+brew        = ["zsh"]
+post        = ["omz", "chsh"]
+
+[module.tmux]
+description = "terminal multiplexer"
+pacman      = ["tmux"]
+brew        = ["tmux"]
+post        = ["tpm"]
+
+[module.nvim]
+description = "editor (git submodule)"
+pacman      = ["neovim"]
+brew        = ["neovim"]
+
+# mise is also bootstrap.sh's one dependency, since Go is installed through it
+# rather than through pacman.
+[module.mise]
+description = "runtime manager"
+pacman      = ["mise"]
+brew        = ["mise"]
+post        = ["mise"]
+
+[module.ghostty]
+description = "terminal"
+aur         = ["ghostty"]
+cask        = ["ghostty"]
+
+[module.foot]
+description = "terminal"
+platforms   = ["linux"]
+pacman      = ["foot"]
+
+[module.herdr]
+description = "terminal workspace manager"
+
+[module.hunk]
+description = "diff pager"
+
+[module.niri]
+description = "compositor"
+platforms   = ["linux"]
+aur         = ["niri"]
+
+[module.waybar]
+description = "status bar"
+platforms   = ["linux"]
+pacman      = ["waybar"]
+
+[module.fuzzel]
+description = "launcher"
+platforms   = ["linux"]
+aur         = ["fuzzel"]
+
+[module.discord]
+description = "chat"
+platforms   = ["linux"]
+
+# pi keeps its config at ~/.pi/agent rather than mirroring $HOME, so the whole
+# module directory is linked to that one target.
+[module.pi]
+description = "coding agent"
+brew        = ["pi-coding-agent"]
+links       = [{ src = ".", dest = "~/.pi/agent" }]
+
+# Packages with no config of their own to link. Keeping them here means a
+# fresh machine still gets the full desktop from one selection screen.
+[module.desktop]
+description = "wayland desktop essentials (packages only)"
+platforms   = ["linux"]
+pacman = [
+  "swaylock",
+  "swaybg",
+  "pipewire",
+  "wireplumber",
+  "playerctl",
+  "pavucontrol",
+  "pulsemixer",
+  "grim",
+  "slurp",
+  "wl-clipboard",
+  "wf-recorder",
+  "loupe",
+  "mpv",
+  "xdg-utils",
+  "iwd",
+  "xdg-desktop-portal-gnome",
+  "brightnessctl",
+  "orca",
+  "ttf-font-awesome",
+  "ttf-jetbrains-mono-nerd",
+]
+aur  = ["google-chrome", "bluetui", "impala"]
+post = ["default-apps"]
+
+[module.base]
+description = "build tools (packages only)"
+platforms   = ["linux"]
+pacman      = ["git", "base-devel", "make", "unzip"]
