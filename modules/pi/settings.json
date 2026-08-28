@@ -3,7 +3,14 @@
   "defaultProvider": "pi-claude-cli",
   "defaultModel": "claude-opus-4-8",
   "defaultThinkingLevel": "xhigh",
-  "packages": [],
+  "packages": [
+    "npm:pi-cursor-sdk",
+    "npm:pi-mcp-adapter",
+    "npm:pi-web-access",
+    "npm:@tintinweb/pi-subagents",
+    "npm:@ff-labs/pi-fff",
+    "npm:pi-powerline-footer"
+  ],
   "hideThinkingBlock": false,
   "transport": "auto",
   "workingVibe": "theme",
@@ -11,5 +18,9 @@
   "quietStartup": true,
   "showHardwareCursor": false,
   "enabledModels": [],
-  "theme": "dark"
+  "theme": "dark",
+  "powerline": {
+    "preset": "compact",
+    "placement": "below"
+  }
 }
