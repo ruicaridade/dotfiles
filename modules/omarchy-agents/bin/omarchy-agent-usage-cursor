@@ -1,0 +1,332 @@
+#!/usr/bin/python3
+# omarchy:summary=Print the Cursor usage record as JSON
+# omarchy:args=[--force] [--limits-only]
+# omarchy:hidden=true
+"""Collect Cursor usage into one display-ready JSON record.
+
+Everything the agents panel shows for Cursor comes from this one command:
+local chat history from the Cursor app's global storage database. The panel
+itself only ever reads the JSON this prints; it never talks to disk formats
+or endpoints.
+
+Cursor exposes no usage or limits API for individual plans, so the record
+carries local stats only: tokens by day, prompts, and sessions. There is no
+reliable per-message model attribution in the database either — a bubble's
+modelInfo is sparse — so modelUsage stays empty and the panel hides its
+tokens-by-model section instead of guessing.
+"""
+
+from __future__ import annotations
+
+import argparse
+import datetime as dt
+import fcntl
+import hashlib
+import json
+import os
+import sqlite3
+import sys
+import tempfile
+import time
+from pathlib import Path
+from typing import Any
+
+AGENT_ID = "cursor"
+AGENT_NAME = "Cursor"
+
+
+def config_dir() -> Path:
+  return Path(os.environ.get("CURSOR_CONFIG_DIR") or Path.home() / ".config" / "Cursor").resolve()
+
+
+def expand_path(value: Path) -> Path:
+  return value.expanduser().resolve()
+
+
+def cache_root() -> Path:
+  root = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "omarchy" / "agent-usage"
+  root.mkdir(parents=True, exist_ok=True)
+  return root
+
+
+def date_string(value: dt.date) -> str:
+  return value.strftime("%Y-%m-%d")
+
+
+def recent_date_strings() -> list[str]:
+  today = dt.datetime.now().date()
+  return [date_string(today - dt.timedelta(days=offset)) for offset in range(6, -1, -1)]
+
+
+def local_date_string() -> str:
+  return date_string(dt.datetime.now().date())
+
+
+def local_date_from_timestamp(value: Any) -> str:
+  # Bubble createdAt values are ISO-8601 with a Z suffix; Python accepts the
+  # offset form but not Z until it is normalized.
+  if not isinstance(value, str) or not value.strip():
+    return local_date_string()
+  try:
+    parsed = dt.datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+    if parsed.tzinfo is not None:
+      parsed = parsed.astimezone()
+    return date_string(parsed.date())
+  except Exception:
+    return local_date_string()
+
+
+def number(value: Any) -> int:
+  try:
+    n = float(value or 0)
+    return round(n) if n == n else 0
+  except Exception:
+    return 0
+
+
+def empty_bucket() -> dict[str, int]:
+  return {
+    "inputTokens": 0,
+    "outputTokens": 0,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 0,
+  }
+
+
+# ---------------------------------------------------------------- local scan
+
+
+def scan_database(db_path: Path) -> dict[str, Any] | None:
+  """Walk every chat bubble in the global storage database.
+
+  Bubbles are keyed ``bubbleId:<composerId>:<messageId>``; type 1 is a user
+  message (a prompt), type 2 is an assistant message carrying tokenCount.
+  Returns None when the database cannot be read at all — missing file,
+  schema surprise, or a lock held in a way read-only access cannot survive.
+  """
+  if not db_path.is_file():
+    return None
+
+  today = local_date_string()
+  recent_dates = recent_date_strings()
+  recent = {day: {"date": day, "messageCount": 0} for day in recent_dates}
+
+  seen: set[str] = set()
+  sessions: set[str] = set()
+  active_days: set[str] = set()
+  today_sessions: set[str] = set()
+  prompts = 0
+  today_prompt_count = 0
+  today_token_total = 0
+
+  try:
+    # Read-only: Cursor may be writing right now.
+    conn = sqlite3.connect(db_path.as_uri() + "?mode=ro", uri=True, timeout=5)
+  except sqlite3.Error:
+    return None
+  try:
+    conn.execute("PRAGMA query_only = ON")
+    for key, raw in conn.execute("SELECT key, value FROM cursorDiskKV WHERE key LIKE 'bubbleId:%'"):
+      try:
+        entry = json.loads(raw)
+        if not isinstance(entry, dict):
+          continue
+      except Exception:
+        continue
+
+      # The middle segment names the chat session the bubble belongs to.
+      parts = str(key).split(":")
+      composer_id = parts[1] if len(parts) > 2 else str(key)
+      day = local_date_from_timestamp(entry.get("createdAt"))
+
+      bubble_type = entry.get("type")
+      if bubble_type == 1:
+        # A user message: one prompt, regardless of what the reply cost.
+        sessions.add(composer_id)
+        active_days.add(day)
+        prompts += 1
+        if day == today:
+          today_prompt_count += 1
+          today_sessions.add(composer_id)
+        continue
+
+      if bubble_type != 2:
+        continue
+
+      counts = entry.get("tokenCount") if isinstance(entry.get("tokenCount"), dict) else {}
+      input_tokens = number(counts.get("inputTokens"))
+      output_tokens = number(counts.get("outputTokens"))
+      total = input_tokens + output_tokens
+      if total <= 0:
+        continue
+      # Refunded requests did not consume the subscription; skip them here
+      # so the tab does not spend allowance that came back.
+      if entry.get("isRefunded"):
+        continue
+      unique_key = str(entry.get("usageUuid") or entry.get("bubbleId") or key)
+      if unique_key in seen:
+        continue
+      seen.add(unique_key)
+
+      sessions.add(composer_id)
+      active_days.add(day)
+      if day in recent:
+        recent[day]["messageCount"] += total
+      if day == today:
+        today_token_total += total
+  except sqlite3.Error:
+    # A lock or corruption mid-scan still contributes what was read, but the
+    # caller must not cache the partial result as if it were whole.
+    raise
+  finally:
+    conn.close()
+
+  return {
+    "todayPrompts": today_prompt_count,
+    "todaySessions": len(today_sessions),
+    "todayTotalTokens": today_token_total,
+    "recentDays": [recent[day] for day in recent_dates],
+    "modelUsage": {},
+    "totalPrompts": prompts,
+    "totalSessions": len(sessions),
+    "activeDays": len(active_days),
+    "activeDates": sorted(active_days),
+  }
+
+
+# ---------------------------------------------------------------- plan label
+
+
+def membership_label(cursor_dir: Path) -> str:
+  """Best-effort plan name from the app's own settings store."""
+  db_path = cursor_dir / "User" / "globalStorage" / "state.vscdb"
+  if not db_path.is_file():
+    return ""
+  try:
+    conn = sqlite3.connect(db_path.as_uri() + "?mode=ro", uri=True, timeout=2)
+  except sqlite3.Error:
+    return ""
+  try:
+    row = conn.execute(
+      "SELECT value FROM ItemTable WHERE key = 'cursorAuth/stripeMembershipType'"
+    ).fetchone()
+  except sqlite3.Error:
+    return ""
+  finally:
+    conn.close()
+  plan = str(row[0]).strip() if row and row[0] else ""
+  return plan[:1].upper() + plan[1:] if plan else ""
+
+
+# ------------------------------------------------------------------- caching
+
+
+def scan_cache_paths(db_path: Path) -> tuple[Path, Path]:
+  digest = hashlib.sha1(str(db_path).encode("utf-8")).hexdigest()[:16]
+  root = cache_root()
+  return root / f"cursor-scan-{digest}.json", root / f"cursor-scan-{digest}.lock"
+
+
+def read_fresh_json(path: Path, max_age_seconds: float) -> dict[str, Any] | None:
+  if max_age_seconds <= 0 or not path.exists():
+    return None
+  try:
+    if time.time() - path.stat().st_mtime <= max_age_seconds:
+      return json.loads(path.read_text(encoding="utf-8"))
+  except Exception:
+    return None
+  return None
+
+
+def write_json(path: Path, payload: dict[str, Any]) -> None:
+  # A temp name unique to this writer, not derived from the target: several
+  # collectors can run at once, and a shared temp path means the second
+  # replace finds the first one's file already moved away.
+  handle_fd, tmp_name = tempfile.mkstemp(dir=path.parent, prefix=path.name + ".", suffix=".tmp")
+  tmp = Path(tmp_name)
+  try:
+    with os.fdopen(handle_fd, "w", encoding="utf-8") as handle:
+      handle.write(json.dumps(payload, separators=(",", ":"), sort_keys=True) + "\n")
+    tmp.chmod(0o644)
+    tmp.replace(path)
+  except BaseException:
+    tmp.unlink(missing_ok=True)
+    raise
+
+
+def cached_scan(db_path: Path, max_age_seconds: float) -> dict[str, Any]:
+  cache_file, lock_file = scan_cache_paths(db_path)
+
+  cached = read_fresh_json(cache_file, max_age_seconds)
+  if cached is not None:
+    return cached
+
+  with lock_file.open("w") as lock:
+    fcntl.flock(lock, fcntl.LOCK_EX)
+    cached = read_fresh_json(cache_file, max_age_seconds)
+    if cached is not None:
+      return cached
+    summary = scan_database(db_path)
+    if summary is not None:
+      # Stored flat, exactly as returned: the cached read and the fresh scan
+      # must hand back the same shape. A failed scan stores nothing.
+      write_json(cache_file, summary)
+    return summary
+
+
+def empty_stats() -> dict[str, Any]:
+  return {
+    "todayPrompts": 0,
+    "todaySessions": 0,
+    "todayTotalTokens": 0,
+    "recentDays": [],
+    "modelUsage": {},
+    "totalPrompts": 0,
+    "totalSessions": 0,
+    "activeDays": 0,
+    "activeDates": [],
+  }
+
+
+# -------------------------------------------------------------------- record
+
+
+def main() -> int:
+  parser = argparse.ArgumentParser()
+  parser.add_argument("--force", action="store_true", help="rescan the database, ignoring caches")
+  parser.add_argument("--limits-only", action="store_true", help="accepted for symmetry; there are no limits to probe")
+  parser.add_argument("--cache-seconds", type=float, default=20)
+  args = parser.parse_args()
+
+  cursor_dir = config_dir()
+  db_path = cursor_dir / "User" / "globalStorage" / "state.vscdb"
+  scan_age = 0 if args.force else (900 if args.limits_only else args.cache_seconds)
+
+  try:
+    stats = cached_scan(db_path, scan_age)
+  except sqlite3.Error:
+    # An unreadable database is no reason to vanish: report zeros and let the
+    # next refresh try again.
+    stats = None
+  if stats is None:
+    stats = empty_stats()
+
+  record = {
+    "schemaVersion": 1,
+    "id": AGENT_ID,
+    "name": AGENT_NAME,
+    "updatedAt": dt.datetime.now(dt.timezone.utc).isoformat(),
+    "ready": number(stats.get("totalPrompts")) > 0,
+    "hasLocalStats": True,
+    "tierLabel": membership_label(cursor_dir),
+    "usageStatusText": "",
+    "authHelpText": "",
+    "limits": [],
+  }
+  record.update(stats)
+  print(json.dumps(record, separators=(",", ":"), sort_keys=True))
+  return 0
+
+
+if __name__ == "__main__":
+  raise SystemExit(main())

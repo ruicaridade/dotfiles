@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Isometric cube, the shape of the Cursor mark -->
+  <g fill="none" stroke="#d4d4d8" stroke-linejoin="round" stroke-width="5">
+    <path d="M32 6 56 19v26L32 58 8 45V19Z"/>
+    <path d="M8 19l24 13 24-13M32 32v26"/>
+  </g>
+</svg>

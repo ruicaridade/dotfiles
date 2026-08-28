@@ -1,50 +1,15 @@
 {
-  "lastChangelogVersion": "0.80.2",
+  "lastChangelogVersion": "0.84.3",
   "defaultProvider": "pi-claude-cli",
-  "defaultModel": "claude-opus-4-7",
+  "defaultModel": "claude-opus-4-8",
   "defaultThinkingLevel": "xhigh",
-  "packages": [
-    "npm:pi-web-access",
-    "npm:pi-mcp-adapter",
-    "npm:pi-powerline-footer",
-    {
-      "source": "npm:@plannotator/pi-extension",
-      "skills": []
-    },
-    "npm:pi-claude-cli"
-  ],
+  "packages": [],
   "hideThinkingBlock": false,
   "transport": "auto",
-  "powerline": {
-    "preset": "minimal",
-    "customItems": [
-      {
-        "id": "model",
-        "statusKey": "model-status",
-        "position": "left"
-      },
-      {
-        "id": "reasoning",
-        "statusKey": "reasoning-status",
-        "position": "left"
-      },
-      {
-        "id": "codex",
-        "statusKey": "codex-status",
-        "position": "right"
-      }
-    ]
-  },
   "workingVibe": "theme",
   "showLastPrompt": false,
   "quietStartup": true,
   "showHardwareCursor": false,
-  "enabledModels": [
-    "cursor/gpt-5.5-extra-high",
-    "cursor/gpt-5.5-high",
-    "cursor/gpt-5.5-medium",
-    "cursor/composer-2-fast",
-    "pi-claude-cli/claude-opus-4-7"
-  ],
+  "enabledModels": [],
   "theme": "dark"
 }

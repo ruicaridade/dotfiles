@@ -1,0 +1,351 @@
+#!/usr/bin/python3
+# omarchy:summary=Print the Others usage record as JSON
+# omarchy:args=[--force] [--limits-only]
+# omarchy:hidden=true
+"""Collect leftover agent usage into one display-ready JSON record.
+
+The claude and codex collectors each claim the sessions their subscription
+billed: anthropic (and pi driving the Claude Code CLI, which writes Claude
+transcripts) for the Claude tab; openai and openai-codex for the Codex tab.
+Everything else those two tools ran against — github-copilot, amazon-bedrock,
+zai, opencode-go, pi pointed at other backends — would otherwise be invisible.
+This collector is where it lands instead.
+
+Sources are the same ones the built-in collectors already know how to read:
+opencode's message database and pi/omp session files. Claimed providers are
+skipped so no token is counted twice across tabs. There are no limits to
+probe — these providers have no single shared endpoint — so the record is
+local stats only.
+"""
+
+from __future__ import annotations
+
+import argparse
+import datetime as dt
+import fcntl
+import hashlib
+import json
+import os
+import sqlite3
+import sys
+import tempfile
+import time
+from pathlib import Path
+from typing import Any
+
+AGENT_ID = "others"
+AGENT_NAME = "Others"
+
+# Providers the built-in collectors already attribute elsewhere. Keep in sync
+# with omarchy-agent-usage-claude and omarchy-agent-usage-codex: claude claims
+# opencode providerID == "anthropic" and pi provider == "anthropic"; codex
+# claims opencode providerID == "openai" and pi provider/api on openai-codex.
+CLAIMED_OPENCODE_PROVIDERS = {"anthropic", "openai"}
+CLAIMED_PI_PROVIDERS = {"anthropic", "openai-codex", "pi-claude-cli"}
+CLAIMED_PI_API_PREFIX = "openai-codex"
+
+
+def opencode_db() -> Path:
+  return Path(os.environ.get("XDG_DATA_HOME") or (Path.home() / ".local" / "share")) / "opencode" / "opencode.db"
+
+
+def pi_session_roots() -> list[Path]:
+  return [
+    Path.home() / ".pi" / "agent" / "sessions",
+    Path.home() / ".omp" / "agent" / "sessions",
+  ]
+
+
+def cache_root() -> Path:
+  root = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "omarchy" / "agent-usage"
+  root.mkdir(parents=True, exist_ok=True)
+  return root
+
+
+def date_string(value: dt.date) -> str:
+  return value.strftime("%Y-%m-%d")
+
+
+def recent_date_strings() -> list[str]:
+  today = dt.datetime.now().date()
+  return [date_string(today - dt.timedelta(days=offset)) for offset in range(6, -1, -1)]
+
+
+def local_date_string() -> str:
+  return date_string(dt.datetime.now().date())
+
+
+def local_day_from_ms(value: Any) -> str:
+  # pi message timestamps are milliseconds; opencode keeps time.created as ms.
+  try:
+    seconds = float(value) / 1000.0 if float(value) > 10_000_000_000 else float(value)
+    if seconds <= 0:
+      raise ValueError
+    return date_string(dt.datetime.fromtimestamp(seconds).date())
+  except Exception:
+    return local_date_string()
+
+
+def number(value: Any) -> int:
+  try:
+    n = float(value or 0)
+    return round(n) if n == n else 0
+  except Exception:
+    return 0
+
+
+def empty_bucket() -> dict[str, int]:
+  return {
+    "inputTokens": 0,
+    "outputTokens": 0,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 0,
+  }
+
+
+class Tally:
+  """Accumulates the record shape every collector prints."""
+
+  def __init__(self) -> None:
+    self.today = local_date_string()
+    self.recent_dates = recent_date_strings()
+    self.recent = {day: {"date": day, "messageCount": 0} for day in self.recent_dates}
+    self.sessions: set[str] = set()
+    self.active_days: set[str] = set()
+    self.today_sessions: set[str] = set()
+    self.usage_by_model: dict[str, dict[str, int]] = {}
+    self.messages = 0
+    self.today_prompt_count = 0
+    self.today_token_total = 0
+
+  def add(self, day: str, session_key: str, model: str, input_tokens: int, output_tokens: int, cache_read: int, cache_write: int) -> None:
+    total = input_tokens + output_tokens + cache_read + cache_write
+    if total <= 0:
+      return
+    # Neither source marks user turns distinctly enough to count prompts the
+    # way the claude collector would like, so billed assistant messages stand
+    # in — the same approximation it makes for its own transcripts.
+    self.messages += 1
+    self.sessions.add(session_key)
+    self.active_days.add(day)
+    bucket = self.usage_by_model.setdefault(model, empty_bucket())
+    bucket["inputTokens"] += input_tokens
+    bucket["outputTokens"] += output_tokens
+    bucket["cacheReadInputTokens"] += cache_read
+    bucket["cacheCreationInputTokens"] += cache_write
+    if day in self.recent:
+      self.recent[day]["messageCount"] += total
+    if day == self.today:
+      self.today_prompt_count += 1
+      self.today_sessions.add(session_key)
+      self.today_token_total += total
+
+  def stats(self) -> dict[str, Any]:
+    return {
+      "todayPrompts": self.today_prompt_count,
+      "todaySessions": len(self.today_sessions),
+      "todayTotalTokens": self.today_token_total,
+      "recentDays": [self.recent[day] for day in self.recent_dates],
+      "modelUsage": self.usage_by_model,
+      "totalPrompts": self.messages,
+      "totalSessions": len(self.sessions),
+      "activeDays": len(self.active_days),
+      "activeDates": sorted(self.active_days),
+    }
+
+
+# ------------------------------------------------------------- opencode scan
+
+
+def scan_opencode(tally: Tally) -> bool:
+  db = opencode_db()
+  if not db.is_file():
+    return True
+  try:
+    conn = sqlite3.connect(db.resolve().as_uri() + "?mode=ro", uri=True, timeout=2)
+  except sqlite3.Error:
+    return False
+  try:
+    conn.execute("PRAGMA query_only = ON")
+    # The LIKE gates skip rows whose JSON cannot hold an assistant message,
+    # and json_valid guards json_extract from raising on malformed rows — the
+    # same acceleration the codex collector uses, minus any provider filter
+    # because this scan wants everyone the claimed sets do not cover.
+    for session_id, raw in conn.execute(
+      "SELECT session_id, data FROM message"
+      " WHERE data LIKE '%\"role\"%:%\"assistant\"%'"
+      " AND CASE WHEN json_valid(data) THEN json_extract(data, '$.role') END = 'assistant'"
+    ):
+      try:
+        entry = json.loads(raw)
+        if not isinstance(entry, dict):
+          continue
+        provider = str(entry.get("providerID") or "")
+        if provider in CLAIMED_OPENCODE_PROVIDERS:
+          continue
+        tokens = entry.get("tokens") or {}
+        cache = tokens.get("cache") or {}
+        input_tokens = number(tokens.get("input"))
+        # opencode keeps thinking tokens out of output; both are generated.
+        output_tokens = number(tokens.get("output")) + number(tokens.get("reasoning"))
+        cache_read = number(cache.get("read"))
+        cache_write = number(cache.get("write"))
+        if not (input_tokens or output_tokens or cache_read or cache_write):
+          continue
+        day = local_day_from_ms((entry.get("time") or {}).get("created"))
+        model = str(entry.get("modelID") or provider).rstrip("/").split("/")[-1]
+      except Exception:
+        continue
+      tally.add(day, "opencode:" + str(session_id), model, input_tokens, output_tokens, cache_read, cache_write)
+  except sqlite3.Error:
+    # Transient lock, schema migration, corruption: the numbers stop here,
+    # incomplete — and must not be cached as if they were whole.
+    return False
+  finally:
+    conn.close()
+  return True
+
+
+# ------------------------------------------------------------------ pi scan
+
+
+def scan_pi(tally: Tally) -> None:
+  for root in pi_session_roots():
+    files = root.rglob("*.jsonl") if root.is_dir() else []
+    for path in files:
+      try:
+        with path.open("r", encoding="utf-8", errors="replace") as handle:
+          for line in handle:
+            if '"assistant"' not in line or '"usage"' not in line:
+              continue
+            try:
+              entry = json.loads(line)
+              message = entry.get("message") if isinstance(entry.get("message"), dict) else {}
+              if entry.get("type") != "message" or message.get("role") != "assistant":
+                continue
+              provider = str(message.get("provider") or "")
+              api = str(message.get("api") or "")
+              if provider in CLAIMED_PI_PROVIDERS or api.startswith(CLAIMED_PI_API_PREFIX):
+                continue
+              usage = message.get("usage") or {}
+              input_tokens = number(usage.get("input"))
+              output_tokens = number(usage.get("output"))
+              cache_read = number(usage.get("cacheRead"))
+              cache_write = number(usage.get("cacheWrite"))
+              if not (input_tokens or output_tokens or cache_read or cache_write):
+                total = number(usage.get("totalTokens"))
+                input_tokens = total
+                if total <= 0:
+                  continue
+              day = local_day_from_ms(message.get("timestamp") or entry.get("timestamp"))
+              model = str(message.get("model") or provider).rstrip("/").split("/")[-1]
+            except Exception:
+              continue
+            tally.add(day, str(path), model, input_tokens, output_tokens, cache_read, cache_write)
+      except OSError:
+        continue
+
+
+# ------------------------------------------------------------------- caching
+
+
+def cache_paths() -> tuple[Path, Path]:
+  digest = hashlib.sha1("|".join(str(p) for p in [opencode_db()] + pi_session_roots()).encode("utf-8")).hexdigest()[:16]
+  root = cache_root()
+  return root / f"others-scan-{digest}.json", root / f"others-scan-{digest}.lock"
+
+
+def read_fresh_json(path: Path, max_age_seconds: float) -> dict[str, Any] | None:
+  if max_age_seconds <= 0 or not path.exists():
+    return None
+  try:
+    if time.time() - path.stat().st_mtime <= max_age_seconds:
+      return json.loads(path.read_text(encoding="utf-8"))
+  except Exception:
+    return None
+  return None
+
+
+def write_json(path: Path, payload: dict[str, Any]) -> None:
+  handle_fd, tmp_name = tempfile.mkstemp(dir=path.parent, prefix=path.name + ".", suffix=".tmp")
+  tmp = Path(tmp_name)
+  try:
+    with os.fdopen(handle_fd, "w", encoding="utf-8") as handle:
+      handle.write(json.dumps(payload, separators=(",", ":"), sort_keys=True) + "\n")
+    tmp.chmod(0o644)
+    tmp.replace(path)
+  except BaseException:
+    tmp.unlink(missing_ok=True)
+    raise
+
+
+def cached_scan(max_age_seconds: float) -> dict[str, Any]:
+  cache_file, lock_file = cache_paths()
+
+  cached = read_fresh_json(cache_file, max_age_seconds)
+  if cached is not None:
+    return cached
+
+  with lock_file.open("w") as lock:
+    fcntl.flock(lock, fcntl.LOCK_EX)
+    cached = read_fresh_json(cache_file, max_age_seconds)
+    if cached is not None:
+      return cached
+    tally = Tally()
+    complete = scan_opencode(tally)
+    scan_pi(tally)
+    summary = tally.stats()
+    # A scan cut short by a database error must not be cached as if it were
+    # the whole story; write a sentinel that never reads fresh instead.
+    payload = {"stats": summary} if complete else {"stats": summary, "incompleteAtMs": round(time.time() * 1000)}
+    if complete:
+      write_json(cache_file, payload)
+    return summary
+
+
+def empty_stats() -> dict[str, Any]:
+  return {
+    "todayPrompts": 0,
+    "todaySessions": 0,
+    "todayTotalTokens": 0,
+    "recentDays": [],
+    "modelUsage": {},
+    "totalPrompts": 0,
+    "totalSessions": 0,
+    "activeDays": 0,
+    "activeDates": [],
+  }
+
+
+# -------------------------------------------------------------------- record
+
+
+def main() -> int:
+  parser = argparse.ArgumentParser()
+  parser.add_argument("--force", action="store_true", help="rescan sources, ignoring caches")
+  parser.add_argument("--limits-only", action="store_true", help="accepted for symmetry; there are no limits to probe")
+  parser.add_argument("--cache-seconds", type=float, default=20)
+  args = parser.parse_args()
+
+  scan_age = 0 if args.force else (900 if args.limits_only else args.cache_seconds)
+  stats = cached_scan(scan_age) or empty_stats()
+
+  record = {
+    "schemaVersion": 1,
+    "id": AGENT_ID,
+    "name": AGENT_NAME,
+    "updatedAt": dt.datetime.now(dt.timezone.utc).isoformat(),
+    "ready": number(stats.get("totalPrompts")) > 0 or number(stats.get("totalSessions")) > 0,
+    "hasLocalStats": True,
+    "tierLabel": "",
+    "usageStatusText": "",
+    "authHelpText": "",
+    "limits": [],
+  }
+  record.update(stats)
+  print(json.dumps(record, separators=(",", ":"), sort_keys=True))
+  return 0
+
+
+if __name__ == "__main__":
+  raise SystemExit(main())

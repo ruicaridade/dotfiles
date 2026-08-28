@@ -16,6 +16,9 @@ focus_pane_left = "ctrl+h"
 focus_pane_down = "ctrl+j"
 focus_pane_up = "ctrl+k"
 focus_pane_right = "ctrl+l"
+remove_worktree = "prefix+shift+x"
+# Moved off its prefix+shift+x default to free that chord for remove_worktree.
+close_tab = "prefix+shift+q"
 
 [[keys.command]]
 key = "prefix+alt+g"
