@@ -1,10 +1,9 @@
 {
-  "lastChangelogVersion": "0.84.3",
-  "defaultProvider": "pi-claude-cli",
-  "defaultModel": "claude-opus-4-8",
+  "lastChangelogVersion": "0.85.1",
+  "defaultProvider": "opencode-go",
+  "defaultModel": "deepseek-v4.1-flash",
   "defaultThinkingLevel": "xhigh",
   "packages": [
-    "npm:pi-cursor-sdk",
     "npm:pi-mcp-adapter",
     "npm:pi-web-access",
     "npm:@tintinweb/pi-subagents",
@@ -14,6 +13,7 @@
   "hideThinkingBlock": false,
   "transport": "auto",
   "workingVibe": "theme",
+  "workingVibeModel": "opencode-go/deepseek-v4.1-flash",
   "showLastPrompt": false,
   "quietStartup": true,
   "showHardwareCursor": false,

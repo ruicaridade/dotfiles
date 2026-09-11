@@ -2,24 +2,10 @@
 "aqua:modem-dev/hunk" = "latest"
 bun = "latest"
 claude = "latest"
-cmake = "latest"
 codex = "latest"
 gh = "latest"
-go = "latest"
-helm = "latest"
-node = "25.0.0"
+helm = "3.19"
+"npm:@xai-official/grok" = "latest"
 opencode = "latest"
 pi = "latest"
-python = "3.13"
-ruby = "latest"
-rust = "latest"
-uv = "latest"
-yarn = "1"
-zig = "latest"
-
-[settings]
-idiomatic_version_file_enable_tools = ["python"]
-experimental = true
-
-[settings.ruby]
-compile = false
+poetry = "latest"
