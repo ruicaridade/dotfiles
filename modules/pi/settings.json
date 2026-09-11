@@ -12,7 +12,7 @@
   ],
   "hideThinkingBlock": false,
   "transport": "auto",
-  "workingVibe": "theme",
+  "workingVibe": "off",
   "workingVibeModel": "opencode-go/deepseek-v4.1-flash",
   "showLastPrompt": false,
   "quietStartup": true,
