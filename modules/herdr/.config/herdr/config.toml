@@ -1,6 +1,6 @@
 onboarding = false
 [theme]
-name = "rose-pine"
+name = "kanagawa"
 
 [worktrees]
 directory = "~/.herdr/worktrees"
@@ -57,3 +57,15 @@ type = "plugin_action"
 command = "jhochenbaum.hunkdiff.review:staged"
 description = "hunk: review staged changes"
 # END jhochenbaum.hunkdiff
+
+[[keys.command]]
+key = "prefix+e"
+type = "plugin_action"
+command = "chmarax.herdr-nvim.toggle"
+description = "nvim sidebar"
+
+[[keys.command]]
+key = "prefix+o"
+type = "plugin_action"
+command = "chmarax.herdr-nvim.pick-file"
+description = "open file from agent output"

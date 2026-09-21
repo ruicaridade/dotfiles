@@ -6,11 +6,10 @@
   "packages": [
     "npm:pi-mcp-adapter",
     "npm:pi-web-access",
-    "npm:@tintinweb/pi-subagents",
     "npm:@ff-labs/pi-fff",
     "npm:pi-powerline-footer"
   ],
-  "hideThinkingBlock": false,
+  "hideThinkingBlock": true,
   "transport": "auto",
   "workingVibe": "off",
   "workingVibeModel": "opencode-go/deepseek-v4.1-flash",
