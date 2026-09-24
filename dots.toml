@@ -48,6 +48,11 @@ pacman      = ["foot"]
 [module.herdr]
 description = "terminal workspace manager"
 
+[module.omarchy]
+description = "Omarchy theme sync for Neovim, Herdr, k9s, and tmux"
+platforms = ["linux"]
+pacman = ["python", "python-yaml"]
+
 [module.hunk]
 description = "diff pager"
 

@@ -1,0 +1,197 @@
+#!/usr/bin/env python3
+"""Apply Omarchy's resolved palette to local applications; --setup opts them in."""
+import argparse
+from datetime import datetime
+import os
+from pathlib import Path
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+import tomllib
+
+
+def write(path, content):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.exists() and path.read_text() == content:
+        return
+    with tempfile.NamedTemporaryFile(mode='w', dir=path.parent, delete=False) as file:
+        file.write(content)
+    os.replace(file.name, path)
+
+
+def backup(path):
+    if path.exists():
+        dest = Path.home() / '.local/state/dotfiles-backups' / datetime.now().strftime('omarchy-%Y%m%d-%H%M%S')
+        dest.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(path, dest / (path.parent.name + '-' + path.name))
+
+
+def rgb(color):
+    return [int(color[i:i + 2], 16) for i in (1, 3, 5)]
+
+
+def mix(left, right, amount):
+    return '#' + ''.join(f'{round(a + (b - a) * amount):02x}' for a, b in zip(rgb(left), rgb(right)))
+
+
+def luminance(color):
+    channels = [value / 255 for value in rgb(color)]
+    return sum(weight * (c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4)
+               for weight, c in zip((0.2126, 0.7152, 0.0722), channels))
+
+
+def readable(color, backgrounds, minimum=4.5):
+    target = '#000000' if luminance(backgrounds[0]) > 0.179 else '#ffffff'
+    for step in range(21):
+        candidate = mix(color, target, step / 20)
+        fg = luminance(candidate)
+        if all((max(fg, luminance(bg)) + .05) / (min(fg, luminance(bg)) + .05) >= minimum for bg in backgrounds):
+            return candidate
+    return target
+
+
+def semantic_colors(palette, backgrounds):
+    colors = {}
+    for token, source, fallback in [
+        ('green', 'green', '#98bb6c'), ('yellow', 'yellow', '#e6c384'),
+        ('red', 'red', '#e06c75'), ('blue', 'blue', '#7e9cd8'),
+        ('teal', 'cyan', '#7fb4ca'), ('peach', 'orange', '#ffa066'),
+        ('mauve', 'magenta', '#b49cde'),
+    ]:
+        if palette['mode'] == 'light':
+            fallback = {
+                'green': '#416c21', 'yellow': '#825a00', 'red': '#aa2f37',
+                'blue': '#2868a0', 'teal': '#256d89', 'peach': '#a34715',
+                'mauve': '#754599',
+            }[token]
+        color = next((palette[key] for key in (source, 'bright_' + source)
+                      if key in palette and max(rgb(palette[key])) - min(rgb(palette[key])) >= 40), fallback)
+        color = readable(color, backgrounds)
+        if max(rgb(color)) - min(rgb(color)) < 40:
+            color = readable(fallback, backgrounds)
+        colors[token] = color
+    return colors
+
+
+def sync_herdr(config, palette):
+    path = config / 'herdr/config.toml'
+    if not path.exists():
+        return
+    text = path.read_text()
+    # Only manage hosts explicitly opted in by --setup.
+    if tomllib.loads(text).get('theme', {}).get('name') != 'terminal':
+        return
+    bg, fg = palette['background'], palette['foreground']
+    active, selection = mix(bg, fg, .10), mix(bg, fg, .30)
+    backgrounds = [bg, active, selection]
+    custom = {
+        'panel_bg': bg, 'sidebar_bg': bg, 'active_row_bg': active,
+        'selection_bg': selection, 'surface0': active, 'surface1': selection,
+        'surface_dim': active, 'text': readable(fg, backgrounds),
+        'overlay0': readable(palette['muted'], backgrounds),
+        'overlay1': readable(fg, backgrounds),
+        'subtext0': readable(palette['dark_foreground'], backgrounds),
+        'accent': readable(palette['accent'], backgrounds),
+    }
+    custom.update(semantic_colors(palette, backgrounds))
+    section = re.search(r'(?ms)^\[theme\.custom\][^\n]*\n(.*?)(?=^\[|\Z)', text)
+    body = section.group(1) if section else ''
+    for key, value in custom.items():
+        entry = f'{key} = "{value}"'
+        pattern = rf'(?m)^{key}\s*=.*$'
+        body = re.sub(pattern, entry, body) if re.search(pattern, body) else body.rstrip() + '\n' + entry + '\n'
+    if section:
+        text = text[:section.start(1)] + body.rstrip() + '\n\n' + text[section.end(1):]
+    else:
+        text += '\n# Colors managed by omarchy-sync-apps.\n[theme.custom]\n' + body.strip() + '\n\n'
+    tomllib.loads(text)
+    write(path, text)
+
+
+def k9s_palette(palette):
+    colors = dict(palette)
+    bg = palette['background']
+    accents = semantic_colors(palette, [bg])
+    for key, source in [('red', 'red'), ('green', 'green'), ('yellow', 'yellow'),
+                        ('blue', 'blue'), ('cyan', 'teal'), ('magenta', 'mauve'), ('orange', 'peach')]:
+        colors[key] = accents[source]
+    for key in ('accent', 'muted'):
+        colors[key] = readable(palette[key], [bg])
+    colors['foreground'] = readable(palette['foreground'], [bg], minimum=7)
+    # k9s 0.51 replaces the selected background with the row's status color.
+    # All status colors contrast with bg, so bg is the safe selected foreground.
+    colors['selection_foreground'] = bg
+    colors['selection_background'] = colors['accent']
+    return colors
+
+
+def setup(config):
+    import yaml
+
+    # Herdr has no conditional config includes. Replace the local symlink with
+    # a host copy, leaving its portable source in dotfiles unchanged.
+    herdr = config / 'herdr/config.toml'
+    text = herdr.read_text() if herdr.exists() else ''
+    section = re.search(r'(?ms)^\[theme\][^\n]*\n(.*?)(?=^\[|\Z)', text)
+    if section:
+        body = section.group(1)
+        if re.search(r'(?m)^name\s*=', body):
+            body = re.sub(r'(?m)^name\s*=.*$', 'name = "terminal"', body)
+        else:
+            body = 'name = "terminal"\n' + body
+        # Explicitly keep the terminal palette through light/dark transitions.
+        body = re.sub(r'(?m)^auto_switch\s*=.*$', 'auto_switch = false', body)
+        text = text[:section.start(1)] + body + text[section.end(1):]
+    else:
+        text += '\n[theme]\nname = "terminal"\n'
+    tomllib.loads(text)
+    backup(herdr)
+    write(herdr, text)
+
+    k9s = config / 'k9s/config.yaml'
+    settings = yaml.safe_load(k9s.read_text()) if k9s.exists() else {}
+    settings = settings or {}
+    ui = settings.setdefault('k9s', {}).setdefault('ui', {})
+    ui.update(skin='omarchy', reactive=True)
+    backup(k9s)
+    write(k9s, yaml.safe_dump(settings, sort_keys=False))
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--setup', action='store_true')
+    args = parser.parse_args()
+    home = Path.home()
+    colors = home / '.local/state/omarchy/current/theme/colors.toml'
+    if sys.platform != 'linux' or not shutil.which('omarchy-theme-color') or not colors.is_file():
+        return
+    config = home / '.config'
+    if args.setup:
+        setup(config)
+    output = subprocess.check_output(['omarchy-theme-color', '--file', str(colors), '--all'], text=True)
+    palette = dict(line.split('\t', 1) for line in output.splitlines())
+    templates = config / 'omarchy/app-templates'
+    tmux = home / '.local/state/omarchy/apps/tmux.conf'
+    for name, dest in [('k9s.yaml', config / 'k9s/skins/omarchy.yaml'), ('tmux.conf', tmux)]:
+        app_palette = k9s_palette(palette) if name == 'k9s.yaml' else palette
+        template = (templates / (name + '.tpl')).read_text()
+        def replace(match):
+            value = app_palette[match.group(1)]
+            if not re.fullmatch(r'#[0-9a-fA-F]{6}', value):
+                raise ValueError(f'Invalid color: {match.group(1)}')
+            return value
+        write(dest, re.sub(r'\{\{ (\w+) \}\}', replace, template))
+    sync_herdr(config, palette)
+    if shutil.which('tmux') and subprocess.run(['tmux', 'list-sessions'], capture_output=True).returncode == 0:
+        subprocess.run(['tmux', 'source-file', str(tmux)], check=True)
+    if shutil.which('herdr'):
+        # Also repaints connected clients; a stopped server is normal.
+        result = subprocess.run(['herdr', 'server', 'reload-config'], capture_output=True, text=True, timeout=10)
+        if result.returncode and args.setup:
+            print('Herdr will use its terminal theme on next launch.', file=sys.stderr)
+
+
+if __name__ == '__main__':
+    main()
