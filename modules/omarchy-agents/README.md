@@ -8,7 +8,7 @@ collector here prints one such record.
 | Collector | Tab | Source |
 |---|---|---|
 | `bin/omarchy-agent-usage-cursor` | Cursor | Local chat bubbles in the Cursor app DB (`~/.config/Cursor/User/globalStorage/state.vscdb`): tokens by day, prompts, sessions. No model split and no rate-limit meter — Cursor exposes no usage API. |
-| `bin/omarchy-agent-usage-others` | Others | opencode messages and pi/omp sessions on providers the built-in Claude/Codex collectors do not claim (github-copilot, amazon-bedrock, zai, opencode-go, …). Claimed providers are skipped so nothing is double-counted. |
+| `bin/omarchy-agent-usage-others` | Others | opencode messages and OMP sessions on providers the built-in Claude/Codex collectors do not claim (github-copilot, amazon-bedrock, zai, opencode-go, …). Claimed providers are skipped so nothing is double-counted. |
 
 ## Install
 
@@ -32,7 +32,7 @@ symlink before upgrading to avoid a pacman file conflict.
 
 ## Keeping honest totals
 
-`CLAIMED_OPENCODE_PROVIDERS` and `CLAIMED_PI_PROVIDERS` at the top of the
+`CLAIMED_OPENCODE_PROVIDERS` and `CLAIMED_OMP_PROVIDERS` at the top of the
 others collector mirror what `omarchy-agent-usage-claude` and
 `omarchy-agent-usage-codex` count for their own subscriptions. If Omarchy
 changes those attributions, update the sets here too.

@@ -332,9 +332,9 @@ func TestEmptySubmoduleIsReportedForInit(t *testing.T) {
 // second time.
 func TestOverrideTargetAndPlatformFilteringAreIdempotent(t *testing.T) {
 	f := newFixture(t, `
-[module.pi]
-brew  = ["pi-coding-agent"]
-links = [{ src = ".", dest = "~/.pi/agent" }]
+[module.agent]
+brew  = ["agent-cli"]
+links = [{ src = ".", dest = "~/.agent/config" }]
 
 [module.niri]
 platforms = ["linux"]
@@ -344,14 +344,14 @@ aur       = ["niri"]
 brew   = ["tmux"]
 pacman = ["tmux"]
 `)
-	piSrc := filepath.Join(f.repo, "modules/pi")
-	f.writeModule("pi/AGENTS.md", "# agents\n")
-	f.writeModule("pi/skills/commit/SKILL.md", "# commit\n")
+	agentSrc := filepath.Join(f.repo, "modules/agent")
+	f.writeModule("agent/AGENTS.md", "# agents\n")
+	f.writeModule("agent/skills/commit/SKILL.md", "# commit\n")
 	f.writeModule("niri/.config/niri/config.kdl", "// niri\n")
 	f.writeModule("tmux/.tmux.conf", "set -g mouse on\n")
 	f.writeModule("tmux/.config/tmux/tmux.conf", "set -g mouse on\n")
 
-	p := f.build("darwin", "pi", "niri", "tmux")
+	p := f.build("darwin", "agent", "niri", "tmux")
 
 	// niri is linux-only, so it is not even offered on darwin.
 	for _, item := range p.Items {
@@ -363,7 +363,7 @@ pacman = ["tmux"]
 		t.Errorf("Packages.AUR = %v, want none on darwin", p.Packages.AUR)
 	}
 	if got := p.Packages.Brew; len(got) != 2 {
-		t.Errorf("Packages.Brew = %v, want pi-coding-agent and tmux", got)
+		t.Errorf("Packages.Brew = %v, want agent-cli and tmux", got)
 	}
 	if len(p.Packages.Pacman) != 0 {
 		t.Errorf("Packages.Pacman = %v, want none on darwin", p.Packages.Pacman)
@@ -376,7 +376,7 @@ pacman = ["tmux"]
 
 	// The override links the whole module directory to a target that does not
 	// mirror $HOME, rather than leaf-linking its contents.
-	assertSymlink(t, filepath.Join(f.home, ".pi/agent"), piSrc)
+	assertSymlink(t, filepath.Join(f.home, ".agent/config"), agentSrc)
 	if _, err := os.Lstat(filepath.Join(f.home, "AGENTS.md")); !os.IsNotExist(err) {
 		t.Errorf("override module should not leaf-link into $HOME")
 	}
@@ -385,12 +385,12 @@ pacman = ["tmux"]
 	assertSymlink(t, filepath.Join(f.home, ".config/tmux/tmux.conf"), filepath.Join(f.repo, "modules/tmux/.config/tmux/tmux.conf"))
 
 	if res.Linked != 3 {
-		t.Fatalf("Linked = %d, want 3 (pi, .tmux.conf, .config/tmux/tmux.conf)", res.Linked)
+		t.Fatalf("Linked = %d, want 3 (agent, .tmux.conf, .config/tmux/tmux.conf)", res.Linked)
 	}
 
 	// Second run: everything is already correct, so nothing is a conflict and
 	// nothing is rewritten.
-	again := f.build("darwin", "pi", "niri", "tmux")
+	again := f.build("darwin", "agent", "niri", "tmux")
 	if got := len(again.Conflicts()); got != 0 {
 		t.Errorf("Conflicts on re-run = %d, want 0", got)
 	}
@@ -568,17 +568,17 @@ func TestLinkedReportsFullyLinkedModulesOnly(t *testing.T) {
 func TestNoUnlinkKeepsUnnamedModulesAlone(t *testing.T) {
 	f := newFixture(t, `
 [module.foot]
-[module.pi]
-links = [{ src = ".", dest = "~/.pi/agent" }]
+[module.agent]
+links = [{ src = ".", dest = "~/.agent/config" }]
 `)
 	f.writeModule("foot/.config/foot/foot.ini", "x\n")
-	piSrc := filepath.Join(f.repo, "modules/pi")
-	f.writeModule("pi/AGENTS.md", "x\n")
+	agentSrc := filepath.Join(f.repo, "modules/agent")
+	f.writeModule("agent/AGENTS.md", "x\n")
 
-	// pi is linked already and is not named in the selection below.
-	piDest := filepath.Join(f.home, ".pi/agent")
-	mustMkdirAll(t, filepath.Dir(piDest))
-	if err := os.Symlink(piSrc, piDest); err != nil {
+	// agent is linked already and is not named in the selection below.
+	agentDest := filepath.Join(f.home, ".agent/config")
+	mustMkdirAll(t, filepath.Dir(agentDest))
+	if err := os.Symlink(agentSrc, agentDest); err != nil {
 		t.Fatal(err)
 	}
 
@@ -607,5 +607,5 @@ links = [{ src = ".", dest = "~/.pi/agent" }]
 	if res.Unlinked != 0 {
 		t.Errorf("Unlinked = %d, want 0", res.Unlinked)
 	}
-	assertSymlink(t, piDest, piSrc)
+	assertSymlink(t, agentDest, agentSrc)
 }

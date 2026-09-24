@@ -75,18 +75,6 @@ aur         = ["fuzzel"]
 description = "chat"
 platforms   = ["linux"]
 
-# pi keeps its config at ~/.pi/agent rather than mirroring $HOME, so the whole
-# module directory is linked to that one target. web-search.json is the
-# exception: the extension resolves its config dir from $XDG_CONFIG_HOME first,
-# so it only reads the file at ~/.config/pi/web-search.json.
-[module.pi]
-description = "coding agent"
-brew        = ["pi-coding-agent"]
-links = [
-  { src = ".", dest = "~/.pi/agent" },
-  { src = "web-search.json", dest = "~/.config/pi/web-search.json" },
-]
-
 # Packages with no config of their own to link. Keeping them here means a
 # fresh machine still gets the full desktop from one selection screen.
 [module.desktop]

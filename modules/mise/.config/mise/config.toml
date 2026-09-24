@@ -8,7 +8,6 @@ helm = "3.19"
 "npm:@rynfar/meridian" = "1.74.0"
 "npm:@xai-official/grok" = "latest"
 opencode = "latest"
-pi = "latest"
 poetry = "latest"
 
 [settings.upgrade]

@@ -5,14 +5,13 @@
 """Collect leftover agent usage into one display-ready JSON record.
 
 The claude and codex collectors each claim the sessions their subscription
-billed: anthropic (and pi driving the Claude Code CLI, which writes Claude
-transcripts) for the Claude tab; openai and openai-codex for the Codex tab.
+billed: anthropic for the Claude tab; openai and openai-codex for the Codex tab.
 Everything else those two tools ran against — github-copilot, amazon-bedrock,
-zai, opencode-go, pi pointed at other backends — would otherwise be invisible.
+zai, opencode-go, OMP pointed at other backends — would otherwise be invisible.
 This collector is where it lands instead.
 
 Sources are the same ones the built-in collectors already know how to read:
-opencode's message database and pi/omp session files. Claimed providers are
+opencode's message database and OMP session files. Claimed providers are
 skipped so no token is counted twice across tabs. There are no limits to
 probe — these providers have no single shared endpoint — so the record is
 local stats only.
@@ -38,20 +37,19 @@ AGENT_NAME = "Others"
 
 # Providers the built-in collectors already attribute elsewhere. Keep in sync
 # with omarchy-agent-usage-claude and omarchy-agent-usage-codex: claude claims
-# opencode providerID == "anthropic" and pi provider == "anthropic"; codex
-# claims opencode providerID == "openai" and pi provider/api on openai-codex.
+# opencode providerID == "anthropic" and OMP provider == "anthropic"; codex
+# claims opencode providerID == "openai" and OMP provider/api on openai-codex.
 CLAIMED_OPENCODE_PROVIDERS = {"anthropic", "openai"}
-CLAIMED_PI_PROVIDERS = {"anthropic", "openai-codex", "pi-claude-cli"}
-CLAIMED_PI_API_PREFIX = "openai-codex"
+CLAIMED_OMP_PROVIDERS = {"anthropic", "openai-codex"}
+CLAIMED_OMP_API_PREFIX = "openai-codex"
 
 
 def opencode_db() -> Path:
   return Path(os.environ.get("XDG_DATA_HOME") or (Path.home() / ".local" / "share")) / "opencode" / "opencode.db"
 
 
-def pi_session_roots() -> list[Path]:
+def omp_session_roots() -> list[Path]:
   return [
-    Path.home() / ".pi" / "agent" / "sessions",
     Path.home() / ".omp" / "agent" / "sessions",
   ]
 
@@ -76,7 +74,7 @@ def local_date_string() -> str:
 
 
 def local_day_from_ms(value: Any) -> str:
-  # pi message timestamps are milliseconds; opencode keeps time.created as ms.
+  # OMP message timestamps are milliseconds; opencode keeps time.created as ms.
   try:
     seconds = float(value) / 1000.0 if float(value) > 10_000_000_000 else float(value)
     if seconds <= 0:
@@ -206,11 +204,11 @@ def scan_opencode(tally: Tally) -> bool:
   return True
 
 
-# ------------------------------------------------------------------ pi scan
+# ------------------------------------------------------------------ OMP scan
 
 
-def scan_pi(tally: Tally) -> None:
-  for root in pi_session_roots():
+def scan_omp(tally: Tally) -> None:
+  for root in omp_session_roots():
     files = root.rglob("*.jsonl") if root.is_dir() else []
     for path in files:
       try:
@@ -225,7 +223,7 @@ def scan_pi(tally: Tally) -> None:
                 continue
               provider = str(message.get("provider") or "")
               api = str(message.get("api") or "")
-              if provider in CLAIMED_PI_PROVIDERS or api.startswith(CLAIMED_PI_API_PREFIX):
+              if provider in CLAIMED_OMP_PROVIDERS or api.startswith(CLAIMED_OMP_API_PREFIX):
                 continue
               usage = message.get("usage") or {}
               input_tokens = number(usage.get("input"))
@@ -250,7 +248,7 @@ def scan_pi(tally: Tally) -> None:
 
 
 def cache_paths() -> tuple[Path, Path]:
-  digest = hashlib.sha1("|".join(str(p) for p in [opencode_db()] + pi_session_roots()).encode("utf-8")).hexdigest()[:16]
+  digest = hashlib.sha1("|".join(str(p) for p in [opencode_db()] + omp_session_roots()).encode("utf-8")).hexdigest()[:16]
   root = cache_root()
   return root / f"others-scan-{digest}.json", root / f"others-scan-{digest}.lock"
 
@@ -293,7 +291,7 @@ def cached_scan(max_age_seconds: float) -> dict[str, Any]:
       return cached
     tally = Tally()
     complete = scan_opencode(tally)
-    scan_pi(tally)
+    scan_omp(tally)
     summary = tally.stats()
     # A scan cut short by a database error must not be cached as if it were
     # the whole story; write a sentinel that never reads fresh instead.
