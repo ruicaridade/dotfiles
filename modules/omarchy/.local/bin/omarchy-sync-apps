@@ -2,6 +2,7 @@
 """Apply Omarchy's resolved palette to local applications; --setup opts them in."""
 import argparse
 from datetime import datetime
+import json
 import os
 from pathlib import Path
 import re
@@ -42,12 +43,16 @@ def luminance(color):
                for weight, c in zip((0.2126, 0.7152, 0.0722), channels))
 
 
+def contrast(left, right):
+    first, second = sorted((luminance(left), luminance(right)))
+    return (second + .05) / (first + .05)
+
+
 def readable(color, backgrounds, minimum=4.5):
     target = '#000000' if luminance(backgrounds[0]) > 0.179 else '#ffffff'
     for step in range(21):
         candidate = mix(color, target, step / 20)
-        fg = luminance(candidate)
-        if all((max(fg, luminance(bg)) + .05) / (min(fg, luminance(bg)) + .05) >= minimum for bg in backgrounds):
+        if all(contrast(candidate, bg) >= minimum for bg in backgrounds):
             return candidate
     return target
 
@@ -127,6 +132,127 @@ def k9s_palette(palette):
     return colors
 
 
+def zed_theme(palette):
+    bg, fg = palette['background'], palette['foreground']
+    raised, hover, selected = mix(bg, fg, .06), mix(bg, fg, .10), mix(bg, fg, .16)
+    line = mix(bg, fg, .05)
+    backgrounds = [bg, raised, selected]
+    text = readable(fg, backgrounds, minimum=7)
+    muted = readable(mix(bg, fg, .6), backgrounds)
+    disabled = mix(bg, fg, .4)
+    border = mix(bg, fg, .14)
+    accent = readable(palette['accent'], backgrounds)
+    # The same accent fallbacks as Neovim keep monochrome themes' syntax distinct.
+    c = semantic_colors(palette, [bg, line])
+    comment = readable(palette['muted'], [bg, line])
+    selection = palette['selection_background']
+    if contrast(selection, bg) < 1.25:
+        selection = mix(bg, accent, .35)
+
+    def a(color, amount):
+        return color + f'{round(amount * 255):02x}'
+
+    style = {
+        'background.appearance': 'opaque',
+        'background': bg, 'surface.background': bg, 'elevated_surface.background': raised,
+        'border': border, 'border.variant': mix(bg, fg, .10), 'border.focused': accent,
+        'border.selected': accent, 'border.transparent': '#00000000', 'border.disabled': mix(bg, fg, .10),
+        'element.background': raised, 'element.hover': hover, 'element.active': selected,
+        'element.selected': selected, 'element.disabled': raised,
+        'drop_target.background': a(accent, .2),
+        'ghost_element.background': '#00000000', 'ghost_element.hover': hover,
+        'ghost_element.active': selected, 'ghost_element.selected': selected,
+        'ghost_element.disabled': '#00000000',
+        'text': text, 'text.muted': muted, 'text.placeholder': disabled, 'text.disabled': disabled,
+        'text.accent': accent, 'icon': text, 'icon.muted': muted, 'icon.placeholder': disabled,
+        'icon.disabled': disabled, 'icon.accent': accent, 'debugger.accent': c['red'],
+        'status_bar.background': bg, 'title_bar.background': bg, 'title_bar.inactive_background': bg,
+        'toolbar.background': bg, 'tab_bar.background': bg, 'tab.inactive_background': bg,
+        'tab.active_background': raised, 'panel.background': bg, 'panel.focused_border': accent,
+        'panel.indent_guide': border, 'panel.indent_guide_hover': disabled,
+        'panel.indent_guide_active': disabled, 'pane.focused_border': accent,
+        'pane_group.border': border,
+        'search.match_background': a(accent, .35), 'search.active_match_background': a(c['peach'], .45),
+        'scrollbar.thumb.background': a(fg, .15), 'scrollbar.thumb.hover_background': a(fg, .25),
+        'scrollbar.thumb.active_background': a(fg, .35), 'scrollbar.thumb.border': '#00000000',
+        'scrollbar.track.background': '#00000000', 'scrollbar.track.border': '#00000000',
+        'minimap.thumb.background': a(fg, .15), 'minimap.thumb.hover_background': a(fg, .25),
+        'minimap.thumb.active_background': a(fg, .35), 'minimap.thumb.border': '#00000000',
+        'editor.foreground': text, 'editor.background': bg, 'editor.gutter.background': bg,
+        'editor.subheader.background': raised, 'editor.active_line.background': line,
+        'editor.highlighted_line.background': line,
+        'editor.debugger_active_line.background': a(c['yellow'], .15),
+        'editor.line_number': readable(palette['muted'], [bg, line], minimum=3),
+        'editor.active_line_number': text, 'editor.hover_line_number': muted,
+        'editor.invisible': mix(bg, fg, .25), 'editor.wrap_guide': mix(bg, fg, .08),
+        'editor.active_wrap_guide': border, 'editor.indent_guide': mix(bg, fg, .08),
+        'editor.indent_guide_active': mix(bg, fg, .2),
+        'editor.document_highlight.read_background': a(accent, .15),
+        'editor.document_highlight.write_background': a(accent, .25),
+        'editor.document_highlight.bracket_background': a(accent, .25),
+        'editor.diff_hunk.added.background': a(c['green'], .16),
+        'editor.diff_hunk.added.hollow_background': a(c['green'], .06),
+        'editor.diff_hunk.added.hollow_border': a(c['green'], .4),
+        'editor.diff_hunk.deleted.background': a(c['red'], .16),
+        'editor.diff_hunk.deleted.hollow_background': a(c['red'], .06),
+        'editor.diff_hunk.deleted.hollow_border': a(c['red'], .4),
+        'version_control.added': c['green'], 'version_control.modified': c['blue'],
+        'version_control.deleted': c['red'], 'version_control.renamed': c['teal'],
+        'version_control.conflict': c['peach'], 'version_control.ignored': disabled,
+        'version_control.word_added': a(c['green'], .3), 'version_control.word_deleted': a(c['red'], .3),
+        'version_control.conflict_marker.ours': a(c['green'], .16),
+        'version_control.conflict_marker.theirs': a(c['blue'], .16),
+        'link_text.hover': c['blue'],
+        # Omarchy's terminals use the palette unchanged, so Zed's does too.
+        'terminal.background': bg, 'terminal.ansi.background': bg, 'terminal.foreground': fg,
+        'terminal.bright_foreground': palette['bright_foreground'], 'terminal.dim_foreground': muted,
+    }
+    for index, name in enumerate(['black', 'red', 'green', 'yellow', 'blue', 'magenta', 'cyan', 'white']):
+        style[f'terminal.ansi.{name}'] = palette[f'color{index}']
+        style[f'terminal.ansi.bright_{name}'] = palette[f'color{index + 8}']
+        style[f'terminal.ansi.dim_{name}'] = mix(bg, palette[f'color{index}'], .7)
+    for status, color in [
+        ('error', c['red']), ('warning', c['yellow']), ('info', c['blue']), ('hint', c['teal']),
+        ('success', c['green']), ('created', c['green']), ('modified', c['blue']),
+        ('deleted', c['red']), ('renamed', c['teal']), ('conflict', c['peach']),
+        ('hidden', disabled), ('ignored', disabled), ('unreachable', muted), ('predictive', muted),
+    ]:
+        style.update({status: color, status + '.background': mix(bg, color, .12),
+                      status + '.border': mix(bg, color, .35)})
+    for mode, color in [('normal', accent), ('insert', c['green']), ('replace', c['red']),
+                        ('visual', c['mauve']), ('visual_line', c['mauve']), ('visual_block', c['mauve']),
+                        ('helix_normal', accent), ('helix_select', c['mauve'])]:
+        style[f'vim.{mode}.background'] = color
+        style[f'vim.{mode}.foreground'] = bg
+    style['vim.yank.background'] = a(c['yellow'], .3)
+    style['accents'] = [c[key] for key in ('blue', 'mauve', 'teal', 'yellow', 'peach', 'green', 'red')]
+    style['players'] = [{'cursor': palette['cursor'], 'background': palette['cursor'], 'selection': selection}] + [
+        {'cursor': c[key], 'background': c[key], 'selection': a(c[key], .25)}
+        for key in ('blue', 'mauve', 'peach', 'teal', 'yellow', 'red', 'green')]
+    # Mirrors mini.base16's groups in Neovim, without italics.
+    syntax = {
+        'attribute': c['yellow'], 'boolean': c['peach'], 'comment': comment, 'comment.doc': comment,
+        'constant': c['peach'], 'constructor': c['yellow'], 'embedded': text, 'enum': c['yellow'],
+        'function': c['blue'], 'hint': muted, 'keyword': c['mauve'], 'label': c['yellow'],
+        'link_text': c['blue'], 'link_uri': c['teal'], 'number': c['peach'], 'operator': text,
+        'predictive': muted, 'preproc': c['yellow'], 'primary': text, 'property': c['red'],
+        'punctuation': muted, 'punctuation.bracket': muted, 'punctuation.delimiter': muted,
+        'punctuation.list_marker': c['red'], 'punctuation.special': c['teal'], 'string': c['green'],
+        'string.escape': c['teal'], 'string.regex': c['teal'], 'string.special': c['teal'],
+        'string.special.symbol': c['teal'], 'tag': c['yellow'], 'text.literal': c['green'],
+        'title': c['blue'], 'type': c['yellow'], 'variable': text, 'variable.special': c['red'],
+        'variant': c['peach'], 'emphasis': c['mauve'], 'emphasis.strong': c['peach'],
+    }
+    style['syntax'] = {key: {'color': color} for key, color in syntax.items()}
+    for key in ('title', 'emphasis.strong'):
+        style['syntax'][key]['font_weight'] = 700
+    return {
+        '$schema': 'https://zed.dev/schema/themes/v0.2.0.json',
+        'name': 'Omarchy', 'author': 'omarchy-sync-apps',
+        'themes': [{'name': 'Omarchy', 'appearance': palette['mode'], 'style': style}],
+    }
+
+
 def setup(config):
     import yaml
 
@@ -158,6 +284,19 @@ def setup(config):
     backup(k9s)
     write(k9s, yaml.safe_dump(settings, sort_keys=False))
 
+    # Zed settings are JSON with comments, so edit only the theme entry.
+    zed = config / 'zed/settings.json'
+    if zed.parent.is_dir():
+        text = zed.read_text() if zed.exists() else '{\n}\n'
+        entry = '"theme": "Omarchy"'
+        pattern = r'"theme"\s*:\s*(\{[^{}]*\}|"[^"]*")'
+        if re.search(pattern, text):
+            text = re.sub(pattern, entry, text, count=1)
+        else:
+            text = re.sub(r'\{', '{\n  ' + entry + ',', text, count=1)
+        backup(zed)
+        write(zed, text)
+
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -184,6 +323,13 @@ def main():
             return value
         write(dest, re.sub(r'\{\{ (\w+) \}\}', replace, template))
     sync_herdr(config, palette)
+    if (config / 'zed').is_dir():
+        # Zed watches its themes directory and reapplies the active theme.
+        theme = json.dumps(zed_theme(palette), indent=2) + '\n'
+        for value in re.findall(r'"(#[^"]*)"', theme):
+            if not re.fullmatch(r'#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?', value):
+                raise ValueError(f'Invalid Zed color: {value}')
+        write(config / 'zed/themes/omarchy.json', theme)
     if shutil.which('tmux') and subprocess.run(['tmux', 'list-sessions'], capture_output=True).returncode == 0:
         subprocess.run(['tmux', 'source-file', str(tmux)], check=True)
     if shutil.which('herdr'):

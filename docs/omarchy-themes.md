@@ -22,9 +22,9 @@ resolver and active palette before changing anything. Python 3 and PyYAML are
 the module's package dependencies. The Neovim and tmux integrations are in their
 existing modules; both retain their portable themes outside Linux/Omarchy.
 
-`--setup` opts Herdr and k9s into theming, backs up their previous configs under
-`~/.local/state/dotfiles-backups/`, generates the current colors, and reloads
-running tmux and Herdr. Run it again after relinking the portable Herdr config.
+`--setup` opts Herdr, k9s and Zed into theming, backs up their previous configs
+under `~/.local/state/dotfiles-backups/`, generates the current colors, and
+reloads running tmux and Herdr. Run it again after relinking the portable Herdr config.
 Open Neovim and k9s once after initial setup to activate their file watchers.
 
 ## Applications
@@ -58,6 +58,14 @@ Open Neovim and k9s once after initial setup to activate their file watchers.
   selected background, so selected text uses the main background color to
   retain contrast through selection changes. An explicit `K9S_SKIN` or
   context-specific skin takes priority.
+- **Zed:** the hook writes `~/.config/zed/themes/omarchy.json`, a theme named
+  `Omarchy` with the palette's light or dark appearance. Zed watches its themes
+  directory and retints open windows without a restart. Setup replaces only the
+  `"theme"` entry in `settings.json` with `"Omarchy"`; comments and other
+  settings are kept. Syntax colors follow the Neovim mapping (mini.base16's
+  groups, the same monochrome fallbacks, 4.5:1 contrast) without italics. The
+  built-in terminal uses the palette's ANSI colors unchanged, like Omarchy's
+  terminals. Nothing is written on hosts without `~/.config/zed`.
 - **tmux:** Omarchy already updates pane colors and terminal palettes. The
   hook adds status bar, border, selection and message colors, retaining the
   existing session/window display. Both tmux config entry points conditionally

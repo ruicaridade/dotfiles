@@ -49,7 +49,7 @@ pacman      = ["foot"]
 description = "terminal workspace manager"
 
 [module.omarchy]
-description = "Omarchy theme sync for Neovim, Herdr, k9s, and tmux"
+description = "Omarchy theme sync for Neovim, Zed, Herdr, k9s, and tmux"
 platforms = ["linux"]
 pacman = ["python", "python-yaml"]
 
