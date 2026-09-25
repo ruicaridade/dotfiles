@@ -1,0 +1,14 @@
+const fs = require('node:fs');
+const vm = require('node:vm');
+const assert = require('node:assert/strict');
+const path = require('node:path');
+const model = vm.createContext({});
+vm.runInContext(fs.readFileSync(path.join(__dirname, '../../../modules/omarchy-agents/.config/omarchy/plugins/ruicaridade.agents/Model.js'), 'utf8'), model);
+const now = Date.parse('2026-09-24T17:00:00Z');
+const provider = {name:'Codex', updatedAt:now/1000, stale:false, limits:[{percent:0.61,label:'Weekly (7-day)',resetsAt:'2026-09-27T21:00:00Z'}]};
+assert.equal(model.headline(provider,now),'Codex 39%');
+assert.equal(model.reset(provider.limits[0].resetsAt,now),'3d 4h');
+assert.equal(model.headline(provider,now+91000),'Codex 39%*');
+assert.equal(model.headline({...provider,limits:[]},now),'Codex —');
+assert.equal(model.headline({...provider,limits:[{...provider.limits[0],resetsAt:'2026-09-24T16:00:00Z'}]},now),'Codex …');
+console.log('usage display flow passed');

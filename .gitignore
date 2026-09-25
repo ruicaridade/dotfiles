@@ -1,3 +1,6 @@
 /dots
 # Temporary files left by mise while replacing its configuration.
 /modules/mise/.config/mise/.config.toml.*
+
+# Local Python integration caches
+__pycache__/

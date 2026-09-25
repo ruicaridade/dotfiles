@@ -1,0 +1,70 @@
+id = "rui.pin-worktrees"
+name = "Pin worktrees"
+version = "0.1.0"
+min_herdr_version = "0.9.0"
+description = "Floating worktree picker with persistent pins, drag ordering and direct shortcuts."
+platforms = ["linux"]
+
+[[actions]]
+id = "toggle"
+title = "Pin or unpin worktree"
+contexts = ["workspace"]
+command = ["python3", "plugin.py", "toggle-current"]
+
+[[actions]]
+id = "open"
+title = "Pinned worktrees"
+command = ["python3", "plugin.py", "open"]
+
+[[panes]]
+id = "picker"
+title = "Pinned workspaces"
+placement = "popup"
+width = 72
+height = "75%"
+command = ["python3", "plugin.py", "panel"]
+
+[[actions]]
+id = "select-1"
+title = "Switch to pin 1"
+command = ["python3", "plugin.py", "select", "1"]
+
+[[actions]]
+id = "select-2"
+title = "Switch to pin 2"
+command = ["python3", "plugin.py", "select", "2"]
+
+[[actions]]
+id = "select-3"
+title = "Switch to pin 3"
+command = ["python3", "plugin.py", "select", "3"]
+
+[[actions]]
+id = "select-4"
+title = "Switch to pin 4"
+command = ["python3", "plugin.py", "select", "4"]
+
+[[actions]]
+id = "select-5"
+title = "Switch to pin 5"
+command = ["python3", "plugin.py", "select", "5"]
+
+[[actions]]
+id = "select-6"
+title = "Switch to pin 6"
+command = ["python3", "plugin.py", "select", "6"]
+
+[[actions]]
+id = "select-7"
+title = "Switch to pin 7"
+command = ["python3", "plugin.py", "select", "7"]
+
+[[actions]]
+id = "select-8"
+title = "Switch to pin 8"
+command = ["python3", "plugin.py", "select", "8"]
+
+[[actions]]
+id = "select-9"
+title = "Switch to pin 9"
+command = ["python3", "plugin.py", "select", "9"]

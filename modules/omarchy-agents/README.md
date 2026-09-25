@@ -1,38 +1,49 @@
-# omarchy-agents
+# Claude and Codex usage in Omarchy
 
-Extra collectors for the Omarchy agents bar panel (`omarchy.agents`). The
-panel displays whatever JSON records land in
-`~/.local/state/omarchy/agents/usage/`; each `omarchy-agent-usage-<agent>`
-collector here prints one such record.
+The user-owned `ruicaridade.agents` widget shows provider logos and remaining
+subscription percentages in the top bar. Claude's short/weekly windows appear
+in that order; Codex shows whichever windows the account actually reports.
+Hover for labels and reset times, or click for meters and details, including
+Claude's model-specific limits. Right-click or press `R` in the panel to refresh.
 
-| Collector | Tab | Source |
-|---|---|---|
-| `bin/omarchy-agent-usage-cursor` | Cursor | Local chat bubbles in the Cursor app DB (`~/.config/Cursor/User/globalStorage/state.vscdb`): tokens by day, prompts, sessions. No model split and no rate-limit meter — Cursor exposes no usage API. |
-| `bin/omarchy-agent-usage-others` | Others | opencode messages and OMP sessions on providers the built-in Claude/Codex collectors do not claim (github-copilot, amazon-bedrock, zai, opencode-go, …). Claimed providers are skipped so nothing is double-counted. |
-
-## Install
-
-The panel's refresh only runs collectors found in `$OMARCHY_PATH/bin`
-(`/usr/share/omarchy/bin`), so the scripts live here (survive package
-upgrades) and get symlinked into place:
-
-```bash
-sudo ln -sf ~/dotfiles/modules/omarchy-agents/bin/omarchy-agent-usage-cursor /usr/share/omarchy/bin/
-sudo ln -sf ~/dotfiles/modules/omarchy-agents/bin/omarchy-agent-usage-others /usr/share/omarchy/bin/
-sudo ln -sf ~/dotfiles/modules/omarchy-agents/assets/cursor.svg /usr/share/omarchy/shell/plugins/agents/assets/
-sudo ln -sf ~/dotfiles/modules/omarchy-agents/assets/others.svg /usr/share/omarchy/shell/plugins/agents/assets/
+```sh
+python3 ~/dotfiles/modules/omarchy-agents/install.py
 ```
 
-Then regenerate once: `omarchy agent usage-update cursor others`. The tabs
-appear on the panel's next refresh; hide either one with the usual
-`providers` setting (`omarchy bar set omarchy.agents providers '…' --json`).
+Installation requires Linux with Omarchy. The installer links the plugin from
+this repo, selects it in `~/.config/omarchy/shell.json`, and restarts the shell.
+Previous local files are backed up in `~/.local/state/dotfiles-backups/`.
+`dots --modules omarchy-agents` can also link the plugin; the installer handles
+selecting it in the bar. No packaged Omarchy files are modified.
 
-If Omarchy ever ships its own collector with one of these names, remove the
-symlink before upgrading to avoid a pacman file conflict.
+Usage polls every 30 seconds, including while the panel is closed. Reset
+countdowns update every second. The providers are polled concurrently, with
+bounded timeouts and a shared cache to avoid duplicate requests on multiple
+monitors. This is polling, not a provider push feed.
 
-## Keeping honest totals
+A failed refresh retains unexpired last-known limits and marks them with `*`
+in the bar and **stale** in the panel. A provider with no usable result shows
+`—`, never a made-up zero. Expired windows show a pending refresh. The popup
+indicator spans the full logos-and-percentages label.
 
-`CLAIMED_OPENCODE_PROVIDERS` and `CLAIMED_OMP_PROVIDERS` at the top of the
-others collector mirror what `omarchy-agent-usage-claude` and
-`omarchy-agent-usage-codex` count for their own subscriptions. If Omarchy
-changes those attributions, update the sets here too.
+Claude uses Omarchy's existing OAuth usage collector and its successful-probe
+timestamp. Codex uses the CLI's read-only app-server protocol directly. Its
+reader drains complete JSON lines before waiting for more data, preventing
+notification/reply batches from causing the intermittent timeout in the stock
+collector's buffered `readline`/`select` loop. No credentials are copied into
+this repository. Cache data lives in `~/.local/state/omarchy/agent-limits/`.
+
+The Codex request sequence was checked against Orca's
+[`codex-rpc-rate-limit-probe.ts`](https://github.com/stablyai/orca/blob/main/src/main/rate-limits/codex-rpc-rate-limit-probe.ts).
+The provider SVGs are the logos bundled with Omarchy's agents plugin, with light
+and dark variants for Codex. Theme colors come from Omarchy's shell at runtime.
+
+```sh
+cd ~/dotfiles
+python3 -m unittest discover -s integrations/herdr/tests -v
+node integrations/herdr/tests/usage-model.test.cjs
+```
+
+`bin/omarchy-agent-usage-cursor`, `bin/omarchy-agent-usage-others`, and their
+assets are retained from the older transcript-statistics integration. They
+are not used by this Claude/Codex quota widget.

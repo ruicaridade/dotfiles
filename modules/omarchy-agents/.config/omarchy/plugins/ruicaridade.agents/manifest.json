@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "ruicaridade.agents",
+  "name": "Claude & Codex usage",
+  "version": "2.0.0",
+  "author": "ruicaridade",
+  "license": "MIT",
+  "description": "Remaining subscription quotas with live reset countdowns and honest stale status.",
+  "kinds": ["bar-widget"],
+  "activation": "on-demand",
+  "entryPoints": {"barWidget": "Panel.qml"},
+  "barWidget": {
+    "displayName": "Claude & Codex usage",
+    "description": "Subscription usage remaining; refreshed every 30 seconds.",
+    "category": "AI",
+    "allowMultiple": false,
+    "defaults": {},
+    "schema": []
+  }
+}

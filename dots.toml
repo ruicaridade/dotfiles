@@ -53,6 +53,12 @@ description = "Omarchy theme sync for Neovim, Herdr, k9s, and tmux"
 platforms = ["linux"]
 pacman = ["python", "python-yaml"]
 
+[module.omarchy-agents]
+description = "Claude and Codex subscription usage in the Omarchy bar"
+platforms = ["linux"]
+pacman = ["python"]
+links = [{ src = ".config/omarchy/plugins/ruicaridade.agents", dest = ".config/omarchy/plugins/ruicaridade.agents" }]
+
 [module.hunk]
 description = "diff pager"
 

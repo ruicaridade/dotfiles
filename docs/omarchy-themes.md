@@ -41,8 +41,10 @@ Open Neovim and k9s once after initial setup to activate their file watchers.
   colors. The navigation selection has a visible background distinct from the
   active worktree. Status colors remain chromatic even on monochrome themes:
   yellow for working, red for blocked/needs input, teal for done, green for
-  idle. Text and status colors have at least 4.5:1 contrast against sidebar,
-  active-row and selected-row backgrounds.
+  idle. Undimmed text and status colors have at least 4.5:1 contrast against
+  sidebar, active-row and selected-row backgrounds. Branch labels use Herdr's
+  per-token dim style to distinguish them from workspace names, while Git
+  ahead/behind indicators retain their status colors.
   Because Herdr has no platform-conditional config includes, setup creates a
   local host copy of `config.toml`; the portable source in the Herdr module
   keeps Kanagawa. Other local settings are preserved. The copy is intentional:
