@@ -4,3 +4,7 @@
 
 # Local Python integration caches
 __pycache__/
+
+# Editor typings Herdr writes into each mod folder
+/modules/herdr-app/.config/herdr-app/mods/*/gpui-kit.d.ts
+/modules/herdr-app/.config/herdr-app/mods/*/jsconfig.json

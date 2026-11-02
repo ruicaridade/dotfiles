@@ -50,6 +50,15 @@ Open Neovim and k9s once after initial setup to activate their file watchers.
   keeps Kanagawa. Other local settings are preserved. The copy is intentional:
   portable config edits need relinking followed by `--setup`. Theme hooks also
   call `herdr server reload-config` to refresh attached clients.
+- **Herdr app:** the desktop app (`herdr-app`) is separate from the Herdr TUI
+  above. Omarchy renders `themed/herdr.json.tpl` into the staged theme as
+  `herdr.json`, and the `theme-set.d/herdr` hook copies it to
+  `~/.config/herdr-app/themes/omarchy.json`, which the app reloads on change.
+  The hook then runs `herdr-app do app.theme --name omarchy` when the window is
+  open. That command sets only the light or dark half of the shown layout's
+  theme, matching the palette, so the other half follows after the first
+  Omarchy theme of the opposite mode. The template sets only the accent, and
+  the app derives its panel colors from the background.
 - **k9s:** setup selects `skin: omarchy` and `reactive: true`. The hook renders
   `~/.config/k9s/skins/omarchy.yaml` from the tracked template; k9s watches it for
   live changes. Ordinary rows use the main foreground at 7:1 contrast; status

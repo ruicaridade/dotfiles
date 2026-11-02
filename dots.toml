@@ -48,8 +48,22 @@ pacman      = ["foot"]
 [module.herdr]
 description = "terminal workspace manager"
 
+# The desktop app rewrites its shipped layouts and mods in this folder on every
+# start, so only our own files are linked. Mods are linked as whole folders, so
+# a file added to one lands in the repo.
+[module.herdr-app]
+description = "Herdr desktop app: keys, reviewer layout and mods"
+links = [
+  { src = ".config/herdr-app/keys.json", dest = ".config/herdr-app/keys.json" },
+  { src = ".config/herdr-app/settings.json", dest = ".config/herdr-app/settings.json" },
+  { src = ".config/herdr-app/layouts/main-reviewer.json", dest = ".config/herdr-app/layouts/main-reviewer.json" },
+  { src = ".config/herdr-app/mods/reviewer", dest = ".config/herdr-app/mods/reviewer" },
+  { src = ".config/herdr-app/mods/worktree-new", dest = ".config/herdr-app/mods/worktree-new" },
+  { src = ".config/herdr-app/mods/worktree-remove", dest = ".config/herdr-app/mods/worktree-remove" },
+]
+
 [module.omarchy]
-description = "Omarchy theme sync for Neovim, Zed, Herdr, k9s, and tmux"
+description = "Omarchy theme sync for Neovim, Zed, Herdr, the Herdr app, k9s, and tmux"
 platforms = ["linux"]
 pacman = ["python", "python-yaml"]
 

@@ -1,0 +1,29 @@
+#!/bin/bash
+# Publish the Omarchy palette to Herdr as its "omarchy" theme and select it.
+# herdr.json is rendered into the current theme by ~/.config/omarchy/themed/herdr.json.tpl.
+set -euo pipefail
+
+src="$HOME/.local/state/omarchy/current/theme/herdr.json"
+herdr_home="${HERDR_APP_HOME:-$HOME/.config/herdr-app}"
+dest="$herdr_home/themes/omarchy.json"
+
+[[ -f $src && -d $herdr_home ]] || exit 0
+
+# A theme missing a color leaves its placeholder in place; keep the old palette.
+if grep -q '{{' "$src"; then
+  echo "Skipping Herdr theme: $src has unresolved colors." >&2
+  exit 0
+fi
+
+# Herdr watches this folder, so swap the file in atomically.
+mkdir -p "$(dirname "$dest")"
+tmp=$(mktemp "$dest.XXXXXX")
+cp "$src" "$tmp"
+mv "$tmp" "$dest"
+
+# Select it in the open window. app.theme sets the light or dark half matching
+# this palette, so after one light and one dark Omarchy theme both halves follow.
+if pgrep -x herdr-app >/dev/null; then
+  herdr_app=$(command -v herdr-app || echo "$HOME/.local/bin/herdr-app")
+  "$herdr_app" do app.theme --name omarchy >/dev/null 2>&1 || true
+fi
