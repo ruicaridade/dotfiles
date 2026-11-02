@@ -57,8 +57,11 @@ Open Neovim and k9s once after initial setup to activate their file watchers.
   The hook then runs `herdr-app do app.theme --name omarchy` when the window is
   open. That command sets only the light or dark half of the shown layout's
   theme, matching the palette, so the other half follows after the first
-  Omarchy theme of the opposite mode. The template sets only the accent, and
-  the app derives its panel colors from the background.
+  Omarchy theme of the opposite mode. The template also sets the app's UI
+  colors, which it would otherwise derive as neutral greys: sidebars and bars
+  use `dark_background`, menus `lighter_background`, and secondary text mixes
+  the foreground 20% or 40% toward the background. Hover, selected and border
+  tints are the foreground at low alpha, like the Omarchy shell's controls.
 - **k9s:** setup selects `skin: omarchy` and `reactive: true`. The hook renders
   `~/.config/k9s/skins/omarchy.yaml` from the tracked template; k9s watches it for
   live changes. Ordinary rows use the main foreground at 7:1 contrast; status
