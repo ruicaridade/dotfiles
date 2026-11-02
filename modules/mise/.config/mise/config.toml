@@ -1,15 +1,22 @@
 [tools]
+"aqua:a-h/templ" = "latest"
 "aqua:modem-dev/hunk" = "latest"
 bun = "latest"
 claude = "latest"
 codex = "latest"
+crush = "latest"
+gemini = { version = "latest", allow_builds = ["@github/keytar", "node-pty"] }
 gh = "latest"
+"github:can1357/oh-my-pi" = "latest"
 go = "latest"
+"go:golang.org/x/tools/gopls" = "latest"
 helm = "3.19"
 "npm:@rynfar/meridian" = "1.74.0"
 "npm:@xai-official/grok" = "latest"
 opencode = "latest"
+pi = "latest"
 poetry = "latest"
+uv = "latest"
 
 [settings.upgrade]
 auto_prune = false
