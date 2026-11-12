@@ -3,12 +3,12 @@
 // its first terminal is in now, only where unusual: branch, ahead/behind. Agent state lives in the agents list, not here. Click to
 // switch, right-click for its menu, drag to reorder.
 //
-// Keyboard (spaces-nav, a copy of the shipped `spaces`): focusable, so pane.go
-// (alt-h from the leftmost pane) moves onto it. j/k or ↓/↑ move a cursor, g/G or
-// Home/End to the first/last; Enter, l or → show the cursor's space (its terminal
-// takes the keyboard), Esc goes back without switching. m opens the cursor's space
-// menu pinned to its row (the stock menu's space items; right-click still opens
-// the stock menu): j/k or ↓/↑ move, Enter runs, Esc closes.
+// Keyboard (spaces-nav, a copy of the shipped `spaces`): "spaces-nav.toggle" (alt-f)
+// gives the list the keyboard, or gives it back to the pane that had it. j/k or ↓/↑
+// move a cursor, g/G or Home/End to the first/last; Enter, l or → show the cursor's
+// space (its terminal takes the keyboard), Esc goes back without switching. m opens
+// the cursor's space menu pinned to its row (right-click opens it too): j/k or ↓/↑
+// move, Enter runs, Esc closes.
 //
 // Pins: the menu's Pin puts a space in a Pinned section above the rest. Pinned
 // spaces are moved to the front of Herdr's own order (in pin order), so
@@ -16,7 +16,7 @@
 
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, Popup } from "gpui-base";
-import { spaces, machines, panes, run, openOverlay, exec, hc, theme, shared, setShared, watchFolder, window, layout, nextCommand } from "herdr";
+import { spaces, machines, panes, focused, run, openOverlay, exec, hc, theme, shared, setShared, watchFolder, window, layout, nextCommand } from "herdr";
 
 function find(node, id) {
   if (node?.id === id) return node;
@@ -87,6 +87,7 @@ export default class Spaces extends View {
       for (;;) {
         const c = await nextCommand();
         if (c === "menu") this.openMenu();
+        else if (c === "toggle") this.toggle();
         else if (c === "focus") {
           this.menu = null;
           // Keeps its place when the keyboard comes back from the space menu.
@@ -291,11 +292,24 @@ export default class Spaces extends View {
   }
 
   // Back to the terminal: the cursor's space when `go`, else where it was.
+  // Take the keyboard (cursor on the shown space), or give it back.
+  toggle() {
+    if (this.handle.is_focused()) { this.leave(false); return; }
+    this.menu = null;
+    this.back = focused()?.pane ?? null;
+    this.cursor = spaces().find((w) => w.active)?.id ?? null;
+    this.handle.focus();
+  }
+
+  // Back to the terminal: the cursor's space when `go` (its terminal takes the
+  // keyboard), else the pane that had it before.
   leave(go) {
-    const id = this.cursor;
+    const id = this.cursor, back = this.back;
     this.cursor = null;
+    this.back = null;
     const w = go && spaces().find((s) => s.id === id);
     if (w && !w.active) run("space.select", { id });
+    else if (back && panes().some((p) => p.pane === back)) run("pane.focus", { pane: back });
     else run("pane.go", { direction: "right" });
   }
 
@@ -335,6 +349,7 @@ export default class Spaces extends View {
 
   // Right-click: the same menu, on that space; the list takes the keyboard for it.
   menuAt(w, cx) {
+    if (!this.handle.is_focused()) this.back = focused()?.pane ?? null;
     this.cursor = w.id;
     this.menu = { id: w.id, at: 0 };
     this.handle.focus();

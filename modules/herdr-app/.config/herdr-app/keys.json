@@ -58,7 +58,9 @@
     "f2": "tab.rename",
     "shift-f2": "space.rename",
     "alt-shift-n": "mod.open:worktree-new",
-    "alt-shift-w": "mod.open:worktree-remove"
+    "alt-shift-w": "mod.open:worktree-remove",
+    "alt-f": "spaces-nav.toggle",
+    "alt-a": "agents-nav.toggle"
   },
   "terminal": {
     "ctrl-backspace": "send:\u0017",
