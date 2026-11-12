@@ -55,7 +55,6 @@
     "ctrl-shift-w": "tab.close",
     "ctrl-shift-x": "pane.close",
     "ctrl-shift-z": "pane.zoom",
-    "ctrl-shift-l": "layout.switch",
     "f2": "tab.rename",
     "shift-f2": "space.rename",
     "alt-shift-n": "mod.open:worktree-new",
@@ -73,6 +72,7 @@
   },
   "layout:main-reviewer": {
     "ctrl-shift-f": "tabs-keys.editor",
-    "ctrl-shift-g": "tabs-keys.changes"
+    "ctrl-shift-g": "tabs-keys.changes",
+    "ctrl-shift-l": "tabs-keys.lazygit"
   }
 }

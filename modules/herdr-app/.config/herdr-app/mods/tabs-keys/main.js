@@ -12,6 +12,8 @@ import { spaces, panes, terminals, run, hc, notify, openOverlay, theme, window, 
 // the `editor` block is pointed at the shown space's nvim (layout.set) whenever the
 // panel shows it. Quitting nvim closes the panel; the next show starts a new one.
 const EDITOR = "herdr-editor.space";
+// "tabs-keys.lazygit": see lazygit.js.
+import { toggleLazygit, lazygitEnded } from "./lazygit.js";
 
 function find(node, id) {
   if (node?.id === id) return node;
@@ -33,6 +35,7 @@ export default class Tabs extends View {
       for (;;) {
         const c = await nextCommand();
         if (c === "editor" || c === "changes") this.togglePanel(c);
+        else if (c === "lazygit") toggleLazygit(cx);
         cx.notify();
       }
     });
@@ -132,6 +135,7 @@ export default class Tabs extends View {
 
   render(cx) {
     const t = theme();
+    lazygitEnded(terminals());
     const space = spaces().find(p => p.active);
     const shown = space?.tabs ?? [];
     const active = shown.findIndex(tab => tab.active);
