@@ -1,4 +1,4 @@
-// Launcher for a key (mod.open:worktree-new): opens Herdr's own worktree dialog in "new" mode
+// Launcher for a key (mod.open:worktree-new): opens worktree-dialog (a clone of Herdr's worktree dialog that pre-fills a generated branch name) in "new" mode
 // for the focused space, then closes itself. The dialog does the work and asks first.
 import { View, div } from "gpui-kit";
 import { focused, panes, openOverlay, closeOverlay, props, notify } from "herdr";
@@ -18,7 +18,7 @@ export default class WorktreeLauncher extends View {
         const cwd = f.pane ? panes().find((p) => p.pane === f.pane)?.cwd : f.cwd;
         if (cwd) args.folder = cwd;
       }
-      openOverlay({ mod: "worktree", kind: "dialog", width: 440, height: 260, props: args });
+      openOverlay({ mod: "worktree-dialog", kind: "dialog", width: 440, height: 260, props: args });
     });
   }
 
