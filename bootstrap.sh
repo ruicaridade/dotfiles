@@ -58,6 +58,10 @@ install_mise() {
 
 install_mise
 
+# Keeps Herdr's runtime layout state (the editor's nvim address, the side panel)
+# out of git; see .gitattributes.
+git -C "$REPO_DIR" config filter.herdr-layout.clean scripts/herdr-layout-clean
+
 # mise exec fetches the toolchain if needed and puts it on PATH for one
 # command, so nothing has to be activated in this shell. The download is
 # cached, which makes the later `mise install` a no-op for Go.

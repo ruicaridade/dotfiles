@@ -764,7 +764,7 @@ export default class Changes extends View {
     const button = (id, label, primary, action) => div().id(id).h(24).px(10).flex().items_center().rounded(6).bg(primary ? t.solid : t.raised).text_color(primary ? t.solid_foreground : t.foreground).text_size(12).font_medium().cursor_pointer().hover((s) => s.opacity(0.88)).on_click(action).child(label);
     const link = (id, label, action) => div().id(id).h(24).px(8).flex().items_center().rounded(6).text_size(12).text_color(t.dim).cursor_pointer().hover((s) => s.bg(t.hover).text_color(t.foreground)).on_click(action).child(label);
     // The accent border of a focused pane: while the panel, its comment box or its commit message has the keyboard.
-    return v_flex().id("changes").size_full().min_h(0).relative().rounded(10).overflow_hidden().bg(t.background).border_1()
+    return v_flex().id("changes").size_full().min_h(0).relative().overflow_hidden().bg(t.background).border_1()
       .border_color(this.typing || this.noteFocused ? t.accent : t.border).focus((s) => s.border_color(t.accent)).text_color(t.foreground).text_size(13).track_focus(this.handle)
       .on_size_change((size, cx) => { const w = this.size?.width; this.size = size; if (w !== size.width) { this.rebuild(); cx.notify(); } })
       .on_key_down((e, cx) => {

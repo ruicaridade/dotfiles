@@ -1,0 +1,9 @@
+#!/bin/sh
+# Git clean filter for the Herdr app layout (see .gitattributes). Resets what Herdr
+# and the tabs-keys mod rewrite while it runs: the editor block's nvim address and
+# the side panel's shown/tab state. Real layout edits still reach git.
+exec jq '
+  (.. | objects | select(.id == "editor") | .content) = {"terminal": "t0"}
+  | (.. | objects | select(.id == "panel") | .hidden) = true
+  | (.. | objects | select(.id == "panel-body") | .active) = "editor"
+'

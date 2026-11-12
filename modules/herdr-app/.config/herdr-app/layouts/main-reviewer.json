@@ -66,7 +66,7 @@
           "id": "tabs",
           "type": "block",
           "content": {
-            "mod": "tabs"
+            "mod": "tabs-keys"
           },
           "size": {
             "px": 42
@@ -117,10 +117,10 @@
                   "type": "stack",
                   "children": [
                     {
-                      "id": "files",
+                      "id": "editor",
                       "type": "block",
                       "content": {
-                        "mod": "files"
+                        "terminal": "t0"
                       }
                     },
                     {
@@ -131,7 +131,7 @@
                       }
                     }
                   ],
-                  "active": "files"
+                  "active": "editor"
                 }
               ],
               "size": {
