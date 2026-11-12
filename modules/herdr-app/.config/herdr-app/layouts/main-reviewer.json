@@ -29,7 +29,7 @@
               "id": "spaces",
               "type": "block",
               "content": {
-                "mod": "spaces"
+                "mod": "spaces-nav"
               },
               "size": {
                 "weight": 1
@@ -48,19 +48,6 @@
               "min": 90
             }
           ]
-        },
-        {
-          "id": "sidebar-footer",
-          "type": "block",
-          "content": {
-            "mod": "workspace-chrome",
-            "props": {
-              "footer": true
-            }
-          },
-          "size": {
-            "px": 69
-          }
         }
       ],
       "size": {
@@ -113,9 +100,8 @@
                     "width": 1,
                     "color": "accent"
                   },
-                  "radius": 10,
-                  "gap": 8,
-                  "lone": true
+                  "radius": 0,
+                  "gap": 0
                 }
               },
               "size": {
@@ -155,18 +141,8 @@
               "hidden": true
             }
           ],
-          "padding": 8,
+          "padding": 0,
           "gap": 8
-        },
-        {
-          "id": "status",
-          "type": "block",
-          "content": {
-            "mod": "workspace-status"
-          },
-          "size": {
-            "px": 28
-          }
         }
       ],
       "resizable": false

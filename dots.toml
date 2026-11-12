@@ -58,6 +58,7 @@ links = [
   { src = ".config/herdr-app/settings.json", dest = ".config/herdr-app/settings.json" },
   { src = ".config/herdr-app/layouts/main-reviewer.json", dest = ".config/herdr-app/layouts/main-reviewer.json" },
   { src = ".config/herdr-app/mods/reviewer", dest = ".config/herdr-app/mods/reviewer" },
+  { src = ".config/herdr-app/mods/spaces-nav", dest = ".config/herdr-app/mods/spaces-nav" },
   { src = ".config/herdr-app/mods/worktree-new", dest = ".config/herdr-app/mods/worktree-new" },
   { src = ".config/herdr-app/mods/worktree-remove", dest = ".config/herdr-app/mods/worktree-remove" },
 ]
