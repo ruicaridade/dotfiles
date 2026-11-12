@@ -9,6 +9,10 @@
 // takes the keyboard), Esc goes back without switching. m opens the cursor's space
 // menu pinned to its row (the stock menu's space items; right-click still opens
 // the stock menu): j/k or ↓/↑ move, Enter runs, Esc closes.
+//
+// Pins: the menu's Pin puts a space in a Pinned section above the rest. Pinned
+// spaces are moved to the front of Herdr's own order (in pin order), so
+// space.select:1..n (alt-1..n) reach them and the rest number on from there.
 
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, Popup } from "gpui-base";
@@ -37,6 +41,9 @@ const RAIL_CELL = 32;
 const railCell = (el) => h_flex().flex_none().justify_center().child(el);
 const where = (s, ps) => JSON.stringify([s.machine ?? null, place(s, ps)]);
 const base = (path) => path.replace(/\/+$/, "").split("/").pop();
+// Pinned space ids, in pin order (shared, so it persists).
+const PINS = "space.pins";
+const pins = () => shared(PINS) ?? [];
 // Changes made outside Herdr (an editor's save, a commit in another app): looked
 // for this often, in repos the list shows, while the window is in front.
 const FALLBACK = 60000;
@@ -75,6 +82,7 @@ export default class Spaces extends View {
     for (const state of Object.values(this.reconnecting)) state.busy = false;
     this.folded = new Set(JSON.parse(localStorage.getItem("machines.folded") ?? "[]"));
     this.handle = cx.focus_handle();
+    this.menu = null; // { id, at }: the space menu, open on that space
     cx.spawn(async (cx) => {
       for (;;) {
         const c = await nextCommand();
@@ -270,7 +278,7 @@ export default class Spaces extends View {
 
   // The spaces in the order the list shows them, skipping folded machines.
   navigable() {
-    return this.ordered().filter((r) => !this.folded.has(r.w.machine ?? null)).map((r) => r.w);
+    return this.ordered().filter((r) => r.pinned || !this.folded.has(r.w.machine ?? null)).map((r) => r.w);
   }
 
   // Move the cursor `by` rows (±Infinity: to the last/first).
@@ -325,12 +333,21 @@ export default class Spaces extends View {
     this.menu = this.menu || !this.cursor ? null : { id: this.cursor, at: 0 };
   }
 
+  // Right-click: the same menu, on that space; the list takes the keyboard for it.
+  menuAt(w, cx) {
+    this.cursor = w.id;
+    this.menu = { id: w.id, at: 0 };
+    this.handle.focus();
+    cx.notify();
+  }
+
   // The stock menu's space items ([label, command, args]); "worktree" opens its dialog.
   menuItems() {
     const id = this.menu?.id;
     const w = spaces().find((s) => s.id === id);
     const g = w && this.git[where(w, panes())];
     return [
+      pins().includes(id) ? ["Unpin", "unpin", { id }] : ["Pin", "pin", { id }],
       ["Rename", "space.rename", { id }],
       ...(g ? [["New worktree", "worktree", { space: id, action: "new" }], ["Open worktree", "worktree", { space: id, action: "open" }]] : []),
       ...(g?.linked ? [["Remove worktree", "worktree", { space: id, action: "remove" }]] : []),
@@ -342,7 +359,9 @@ export default class Spaces extends View {
     const it = this.menuItems()[i];
     this.menu = null;
     if (!it) return;
-    if (it[1] === "worktree") openOverlay({ mod: "worktree", kind: "dialog", ...(it[2].action === "open" ? { width: 560, height: 480 } : { width: 440, height: 260 }), props: it[2] });
+    if (it[1] === "pin") setShared(PINS, [...pins(), it[2].id]);
+    else if (it[1] === "unpin") setShared(PINS, pins().filter((id) => id !== it[2].id));
+    else if (it[1] === "worktree") openOverlay({ mod: "worktree", kind: "dialog", ...(it[2].action === "open" ? { width: 560, height: 480 } : { width: 440, height: 260 }), props: it[2] });
     else run(it[1], it[2]);
   }
 
@@ -350,7 +369,7 @@ export default class Spaces extends View {
   withMenu(w, el, t) {
     // Only while the list has the keyboard: alt-l or a click elsewhere leaves it behind.
     if (this.menu?.id !== w.id || !this.handle.is_focused()) return el;
-    const icon = (c) => `mods/workspace-chrome/${c.endsWith(".close") ? "x" : c === "worktree" ? "git-branch" : "square-pen"}.svg`;
+    const icon = (c) => `mods/workspace-chrome/${c.endsWith(".close") ? "x" : c === "worktree" ? "git-branch" : c === "pin" ? "pin" : c === "unpin" ? "pin-off" : "square-pen"}.svg`;
     const list = this.menuItems();
     const card = v_flex().id("space-menu").w(200).p(5).rounded(10).border_1().border_color(t.border).bg(t.popover).shadow_lg().text_size(12.8)
       .on_mouse_down_out((_e, cx) => { this.menu = null; cx.notify(); })
@@ -365,25 +384,23 @@ export default class Spaces extends View {
     return Popup.new(`space-menu-${w.id}`, el).anchor("top_left").content(card);
   }
 
-  menu(w) {
-    // A popup is as tall as its items; height is only the most.
-    openOverlay({ mod: "menu", kind: "popup", width: 200, height: 260, props: { tab: "space", target: { id: w.id } } });
-  }
-
   orderingDue(now) {
     return this.ordering && now - this.ordering.at >= 1000
       && this.ordering.machines.every(name => machines().some(m => m.name === name && m.layout === "ready"));
   }
 
-  // Spaces in order, each worktree space moved under its main checkout's.
+  // Spaces in order: the pinned ones first (pinned: true, in pin order), then the
+  // rest, each worktree space moved under its main checkout's.
   ordered() {
     const sp = spaces(), ps = panes();
     const ready = (w) => this.shown.has(w.id) || where(w, ps) in this.git || Date.now() - (this.born[w.id] ??= Date.now()) > 1500;
     for (const w of sp) if (!this.shown.has(w.id) && ready(w)) this.shown.add(w.id);
-    const list = sp.map((w, i) => ({ w, i, g: this.git[where(w, ps)] ?? null }));
+    const all = sp.map((w, i) => ({ w, i, g: this.git[where(w, ps)] ?? null }));
+    const pinned = pins().map((id) => all.find((r) => r.w.id === id)).filter(Boolean);
+    const list = all.filter((r) => !pinned.includes(r));
     const mains = new Set(list.filter((r) => r.g && !r.g.linked).map((r) => r.g.repo));
     const nested = (r) => r.g?.linked && mains.has(r.g.repo);
-    const out = [];
+    const out = pinned.map((r) => ({ ...r, tree: null, pinned: true }));
     const placed = new Set(); // repos whose worktrees are listed (under the first of its spaces)
     for (const r of list) {
       if (nested(r)) continue;
@@ -415,10 +432,14 @@ export default class Spaces extends View {
     return out.filter(r => this.shown.has(r.w.id));
   }
 
+  draw(r, t, collapsed) {
+    return this.withMenu(r.w, collapsed ? this.compact(r, t) : this.row(r, t), t);
+  }
+
   // The rows, under a header per machine once one isn't this computer.
-  grouped(t, collapsed) {
-    const rows = this.ordered();
-    const draw = (r) => this.withMenu(r.w, collapsed ? this.compact(r, t) : this.row(r, t), t);
+  // `rows`: the unpinned ones.
+  grouped(t, collapsed, rows) {
+    const draw = (r) => this.draw(r, t, collapsed);
     const remote = [...new Set([...rows.map(r => r.w.machine).filter(Boolean), ...this.machines.map(m => m.name), ...Object.keys(this.reconnecting)])].sort();
     const loading = m => {
       const layout = machines().find(k => k.name === m)?.layout;
@@ -537,12 +558,19 @@ export default class Spaces extends View {
         this.pressed = null;
         this.over = null;
         if (from !== null && over === w.id && from !== w.id) {
-          const index = spaces().findIndex(s => s.id === w.id);
-          if (index !== -1) run("space.move", { id: from, index: index + 1 });
+          const list = pins();
+          if (list.includes(from) && list.includes(w.id)) {
+            const rest = list.filter((id) => id !== from);
+            rest.splice(list.indexOf(w.id), 0, from);
+            setShared(PINS, rest);
+          } else if (!list.includes(from) && !list.includes(w.id)) {
+            const index = spaces().findIndex(s => s.id === w.id);
+            if (index !== -1) run("space.move", { id: from, index: index + 1 });
+          }
         } else if (from === w.id) run("space.select", { id: w.id });
         cx.notify();
       })
-      .on_mouse_down("right", () => this.menu(w))
+      .on_mouse_down("right", (_e, cx) => this.menuAt(w, cx))
       .child(
         h_flex()
           .gap(9)
@@ -566,6 +594,7 @@ export default class Spaces extends View {
       .when(w.active, (el) => el.bg(t.selected))
       .when(!w.active, (el) => el.hover((s) => s.bg(t.hover)))
       .on_click(() => run("space.select", { id: w.id }))
+      .on_mouse_down("right", (_e, cx) => this.menuAt(w, cx))
       .child(div().text_color(w.active ? t.foreground : t.muted).child(String(i + 1)))
       .child(div().absolute().right(5).text_color(tone(t, w.status)).child(glyph(w.status))));
   }
@@ -585,16 +614,23 @@ export default class Spaces extends View {
       changed = true;
     }
     if (changed) setShared("space.colors", kept);
+    const rows = this.ordered();
+    const pinned = rows.filter((r) => r.pinned);
+    const header = (label) => h_flex().h(31).pl(16).pr(10).items_center().justify_between().text_size(11.5).text_color(t.dim)
+      .when(collapsed, el => el.pl(0).pr(0).justify_center())
+      .when(!collapsed, el => el.child(label));
     return v_flex().id("spaces-nav").size_full().min_h(0).bg(t.chrome).text_size(13)
       .track_focus(this.handle)
       .on_key_down((e, cx) => { if (this.handle.is_focused() && this.navKey(e)) { cx.stop_propagation(); cx.notify(); } })
-      .child(h_flex().h(31).pl(16).pr(10).items_center().justify_between().text_size(11.5).text_color(t.dim)
-        .when(collapsed, el => el.pl(0).pr(0).justify_center())
-        .when(!collapsed, el => el.child("Spaces"))
+      .when(pinned.length > 0, el => el
+        .when(!collapsed, el => el.child(header("Pinned")))
+        .child(v_flex().flex_none().px(collapsed ? 0 : 8).pb(6).when(collapsed, el => el.pt(4))
+          .children(pinned.map((r) => this.draw(r, t, collapsed)))))
+      .child(header("Spaces")
         .child(div().id("space-new").size(26).flex_none().flex().items_center().justify_center().rounded(6).hover(s => s.bg(t.hover).text_color(t.foreground))
           .on_click(() => run("space.new")).child(svg("mods/workspace-chrome/plus.svg").size(14))))
       .child(v_flex().flex_1().min_h(0).px(collapsed ? 0 : 8).pb(14).overflow_y_scrollbar().mode("always")
         .on_mouse_up("left", (_e, cx) => { this.pressed = null; cx.notify(); })
-        .children(this.grouped(t, collapsed)));
+        .children(this.grouped(t, collapsed, rows.filter((r) => !r.pinned))));
   }
 }
