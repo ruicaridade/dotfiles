@@ -4,6 +4,11 @@
 // list the keyboard, with a cursor on the shown agent: j/k or ↓/↑ move (sub-agents
 // too), g/G or Home/End to the first/last; Enter, l or → show the agent under it (its
 // terminal takes the keyboard); Esc or the toggle again go back to the pane before.
+//
+// Pinned agents are slots: the first nine are "agents-nav.slot1".."slot9" (alt-1..9),
+// numbered on their rows. Reorder them by dragging a pinned row onto another, or with
+// the list's keyboard: J/K (shift-↓/↑) move the agent under the cursor, p pins/unpins.
+// The order is shared ("agents.pinOrder"); pins themselves stay on the terminals.
 
 import { View, div, image, svg } from "gpui-kit";
 import { v_flex, h_flex, ScrollHandle } from "gpui-base";
@@ -63,6 +68,7 @@ const SORTS = [
   { id: "grouped", label: "Grouped by space", icon: "layers" },
 ];
 const sortOf = () => SORTS.find((s) => s.id === shared("agents.sort")) ?? SORTS[0];
+const PIN_ORDER = "agents.pinOrder";
 const SECTION = { 4: "Needs you", 3: "Done", 2: "Working", 1: "Idle" };
 const SECTION_STATUS = { 4: "blocked", 3: "done", 2: "working" };
 
@@ -96,12 +102,36 @@ export default class Agents extends View {
     this.cursor = null; // the address under the cursor
     this.back = null; // the pane that had the keyboard before
     this.nav = []; // the rows the cursor can be on, as last drawn: { address, pane?, sub?, row }
+    this.slots = []; // pinned agents in slot order, as last drawn: { address, pane }
+    this.pressed = null; // the pinned row a drag started on
+    this.over = null; // the pinned row it's over
     cx.spawn(async (cx) => {
       for (;;) {
-        if (await nextCommand() === "toggle") this.toggle();
+        const c = await nextCommand();
+        if (c === "toggle") this.toggle();
+        else if (/^slot[1-9]$/.test(c)) this.slot(Number(c.slice(4)));
         cx.notify();
       }
     });
+  }
+
+  // alt-<n>: show the n-th pinned agent.
+  slot(n) {
+    const a = this.slots[n - 1];
+    if (a) run("pane.focus", { pane: a.pane });
+  }
+
+  // Move a pinned agent `by` places (keyboard), or to `to`'s place (drop).
+  movePin(address, { by, to }) {
+    const order = this.slots.map((s) => s.address);
+    const from = order.indexOf(address);
+    if (from < 0) return false;
+    const at = to !== undefined ? order.indexOf(to) : Math.max(0, Math.min(order.length - 1, from + by));
+    if (at < 0 || at === from) return false;
+    order.splice(at, 0, order.splice(from, 1)[0]);
+    // Keep the entries this list doesn't show (an away machine's) after the shown ones.
+    setShared(PIN_ORDER, [...order, ...(shared(PIN_ORDER) ?? []).filter((x) => !order.includes(x))]);
+    return true;
   }
 
   // Take the keyboard (cursor on the shown agent), or give it back.
@@ -137,6 +167,14 @@ export default class Agents extends View {
     const nav = this.nav;
     if (!nav.length) return false;
     let at = nav.findIndex((r) => r.address === this.cursor);
+    if (shift && at >= 0 && ["j", "k", "down", "up"].includes(k)) {
+      this.movePin(this.cursor, { by: k === "j" || k === "down" ? 1 : -1 });
+      return true;
+    }
+    if (k === "p" && at >= 0 && !nav[at].sub) {
+      run("terminal.pin", { terminal: nav[at].address, pinned: !this.slots.some((s) => s.address === nav[at].address) });
+      return true;
+    }
     switch (k) {
       case "j": case "down": at = Math.min(nav.length - 1, at + 1); break;
       case "k": case "up": at = Math.max(0, at < 0 ? 0 : at - 1); break;
@@ -323,7 +361,22 @@ export default class Agents extends View {
     const urgency = new Map(list.map((a) => [a.address, Math.max(this.rank(a), ...this.tree(all, a.address).map((s) => RANK[kidStatus(s.t, this.listed)] ?? 0))]));
     const rankOf = (a) => urgency.get(a.address);
     if (byPriority) list = [...list].sort((x, y) => rankOf(y) - rankOf(x) || this.since(y) - this.since(x) || y.seq - x.seq);
-    const pinned = list.filter((a) => a.pinned);
+    // Pinned agents in the shared order; new pins go last. An order entry goes once
+    // its terminal is unpinned or gone; an away machine's stays until it's back.
+    const pinnedNow = list.filter((a) => a.pinned);
+    const order = shared(PIN_ORDER) ?? [];
+    const byAddr = new Map(all.map((x) => [x.address, x]));
+    const pinnedSet = new Set(pinnedNow.map((a) => a.address));
+    const keep = (ad) => {
+      const term = byAddr.get(ad);
+      return pinnedSet.has(ad) || (term ? Boolean(term.labels?.["herdr.pinned"]) : ad.includes("/") || all.length === 0);
+    };
+    const nextOrder = order.filter(keep);
+    for (const a of pinnedNow) if (!nextOrder.includes(a.address)) nextOrder.push(a.address);
+    if (JSON.stringify(nextOrder) !== JSON.stringify(order)) setShared(PIN_ORDER, nextOrder);
+    const pinned = nextOrder.map((ad) => pinnedNow.find((a) => a.address === ad)).filter(Boolean);
+    this.slots = pinned.map((a) => ({ address: a.address, pane: a.pane }));
+    const slotOf = new Map(pinned.map((a, i) => [a.address, i + 1]));
     const rest = list.filter((a) => !a.pinned);
     list = [...pinned, ...rest];
     setAgentOrder(list.map((a) => a.address));
@@ -426,7 +479,12 @@ export default class Agents extends View {
       const fromPath = (sp?.folder ?? "").match(/\/worktrees\/([^/]+)\/[^/]+\/?$/)?.[1];
       const project = (cwd ? this.project(sp?.machine ?? null, cwd, cx) : null) || fromPath || spaceName;
       const branch = pane?.branch ?? sp?.branch;
+      const slotN = slotOf.get(a.address);
+      const dragging = this.pressed !== null && this.pressed !== a.address && slotOf.has(this.pressed);
+      const dropHere = dragging && isPinned && this.over === a.address;
+      const fromSlot = dragging ? slotOf.get(this.pressed) : 0;
       return v_flex()
+        .relative()
         .id(`ag-${a.address}`)
         .px(8)
         .py(5)
@@ -434,6 +492,22 @@ export default class Agents extends View {
         .flex_none()
         .rounded(8)
         .when(a.focused, (el) => el.bg(t.selected))
+        .when(isPinned && this.pressed === a.address && this.over !== a.address, (el) => el.opacity(0.5))
+        .when(dropHere, (el) => el.child(div().absolute().left(0).right(0).h(2).bg(t.accent)
+          .when(fromSlot < slotN, (line) => line.bottom(0))
+          .when(fromSlot > slotN, (line) => line.top(0))))
+        .when(isPinned, (el) => el
+          .on_mouse_down("left", () => { this.pressed = a.address; this.over = a.address; })
+          .on_mouse_move((_e, cx) => {
+            if (this.pressed !== null && this.over !== a.address) { this.over = a.address; cx.notify(); }
+          })
+          .on_mouse_up("left", (_e, cx) => {
+            const from = this.pressed;
+            this.pressed = null;
+            this.over = null;
+            if (from && from !== a.address) this.movePin(from, { to: a.address });
+            cx.notify();
+          }))
         .border_1().border_color(this.ring(t, a.address))
         .cursor_pointer()
         .hover((s) => s.bg(t.hover))
@@ -456,10 +530,12 @@ export default class Agents extends View {
               .child(svg("mods/workspace-chrome/git-branch.svg").size(10).flex_none().text_color(t.dim))
               .child(div().flex_1().min_w(0).truncate().text_color(t.dim).child(branch))))
           .when(Boolean(machine), el => el.child(div().flex_none().text_size(10).text_color(t.dim).child(machine)))
+          .when(Boolean(slotN) && slotN <= 9, el => el.child(div().id(`slot-${a.address}`).flex_none().px(4).h(14).rounded(4).bg(t.hover)
+            .flex().items_center().text_size(10).font_medium().text_color(t.muted).tooltip(`alt-${slotN}`).child(String(slotN))))
           .when(this.hovered === a.address, el => el.child(pin))
           .when(this.hovered !== a.address && Boolean(when), el => el.child(div().flex_none().text_size(11).text_color(t.dim).child(duration(now - when)))))
         .child(h_flex().h(18).gap(6).items_center()
-          .child(div().flex_1().min_w(0).truncate().font_medium().text_color(t.foreground).child(name))
+          .child(div().flex_1().min_w(0).truncate().text_color(t.muted).child(name))
           .when(subs.length > 0, el => el.child(fold(a, subs)))
           .child(this.status(t, a, byPriority && !isPinned)));
     };
@@ -556,7 +632,7 @@ export default class Agents extends View {
       .when(list.length === 0 && !collapsed, (el) =>
         el.child(div().px(12).text_size(12).text_color(t.dim).child("No agent status yet. Agents show up here when they report their status. Older versions and agents inside tmux may not.")),
       )
-      .child(v_flex().id("ag-list").flex_1().min_h(0).px(collapsed ? 0 : 8).overflow_y_scrollbar().mode("always").track_scroll(this.scroll).children(rows))
+      .child(v_flex().id("ag-list").on_mouse_up("left", (_e, cx) => { if (this.pressed) { this.pressed = null; this.over = null; cx.notify(); } }).flex_1().min_h(0).px(collapsed ? 0 : 8).overflow_y_scrollbar().mode("always").track_scroll(this.scroll).children(rows))
       .when(collapsed, (el) =>
         el.child(
           h_flex()
