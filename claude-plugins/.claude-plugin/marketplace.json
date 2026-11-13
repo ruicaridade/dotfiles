@@ -1,0 +1,5 @@
+{
+  "name": "dotfiles",
+  "owner": { "name": "dotfiles" },
+  "plugins": [{ "name": "inline-images", "source": "./inline-images" }]
+}

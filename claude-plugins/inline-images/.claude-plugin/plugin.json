@@ -1,0 +1,5 @@
+{
+  "name": "inline-images",
+  "version": "0.1.0",
+  "description": "Shows images inline in the terminal: under image Reads, and through a show_image tool"
+}
