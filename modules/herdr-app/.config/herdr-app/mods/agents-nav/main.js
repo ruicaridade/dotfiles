@@ -7,7 +7,7 @@
 
 import { View, div, image, svg } from "gpui-kit";
 import { v_flex, h_flex, ScrollHandle } from "gpui-base";
-import { agents, terminals, panes, focused, spaces, run, theme, shared, setShared, setAgentOrder, openOverlay, closeOverlay, props, window, layout, nextCommand } from "herdr";
+import { agents, terminals, panes, focused, spaces, run, exec, theme, shared, setShared, setAgentOrder, openOverlay, closeOverlay, props, window, layout, nextCommand } from "herdr";
 
 function find(node, id) {
   if (node?.id === id) return node;
@@ -89,6 +89,7 @@ export default class Agents extends View {
     this.pendingPins = JSON.parse(localStorage.getItem("pins") ?? "[]");
     if (!this.pendingPins.length) localStorage.removeItem("pins");
     this.migratingPins = new Set();
+    this.projects = {}; // JSON [machine, folder] -> repo name | null
     cx.timer.every(30000, (cx) => cx.notify());
     this.handle = cx.focus_handle();
     this.scroll = ScrollHandle.new();
@@ -194,6 +195,26 @@ export default class Agents extends View {
 
   since(a) {
     return this.changed[a.address]?.at ?? 0;
+  }
+
+  // The repo a folder belongs to (a worktree names its main checkout's repo), or null
+  // when it isn't one. Asked once per place; undefined while git is being asked.
+  project(on, cwd, cx) {
+    const key = JSON.stringify([on, cwd]);
+    if (key in this.projects) return this.projects[key];
+    this.projects[key] = undefined;
+    cx.spawn(async (cx) => {
+      try {
+        const r = await exec("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], { cwd, on, timeout: 5000 });
+        const repo = r.code === 0 ? r.stdout.trim().replace(/\/$/, "") : "";
+        const base = (p) => p.split("/").pop();
+        this.projects[key] = !repo ? null : repo.endsWith("/.git") ? base(repo.slice(0, -5)) : base(repo).replace(/\.git$/, "");
+      } catch {
+        this.projects[key] = null; // gone folder or an away machine
+      }
+      cx.notify();
+    });
+    return undefined;
   }
 
   rank(a) {
@@ -337,8 +358,12 @@ export default class Agents extends View {
     // agent's own title, never an automatic tab number unless two rows would
     // otherwise read the same.
     // Read the pane snapshot once: every host read copies the whole list into JS.
-    const leads = leadPanes(panes());
-    const tabs = new Map(spaces().flatMap(s => s.tabs).map(tab => [tab.id, tab]));
+    const allPanes = panes();
+    const leads = leadPanes(allPanes);
+    const paneOf = new Map(allPanes.map((p) => [p.pane, p]));
+    const spaceList = spaces();
+    const spaceOf = new Map(spaceList.map((s) => [s.id, s]));
+    const tabs = new Map(spaceList.flatMap(s => s.tabs).map(tab => [tab.id, tab]));
     const labels = new Map(list.map(a => {
       const tab = tabs.get(a.tab);
       const many = tabCounts.get(a.tab) > 1;
@@ -372,7 +397,6 @@ export default class Agents extends View {
           .child(h_flex().w(14).flex_none().items_center().justify_center().child(this.status(t, a, true)));
       }
       const when = this.since(a);
-      const idle = a.status === "idle" && !a.focused;
       const isPinned = a.pinned;
       const pin = div()
         .id(`pin-${a.address}`)
@@ -391,18 +415,24 @@ export default class Agents extends View {
           cx.notify();
         })
         .child(svg(`mods/workspace-chrome/${isPinned ? "pin-off" : "pin"}.svg`).size(13));
-      // Under a space header the space goes without saying; an automatic tab number says nothing.
-      // Without a space header above (priority, pinned) the row names its space.
-      const full = byPriority || isPinned;
-      const name = full ? a.space_name || label(a) : more ?? (/^\d+$/.test(label(a)) ? a.program?.name || label(a) : label(a));
-      return h_flex()
+      // Two lines, like T3 Code's threads: harness, project and branch, then the
+      // agent's name. An automatic tab number says nothing: the program's name instead.
+      const name = more ?? (/^\d+$/.test(label(a)) ? a.program?.name || label(a) : label(a));
+      const pane = paneOf.get(a.pane);
+      const sp = spaceOf.get(a.space);
+      const cwd = pane?.cwd || sp?.folder;
+      const spaceName = (a.space_name || "").replace(/ \(deleted\)$/, "");
+      // Git can't answer for a deleted worktree: its path (…/worktrees/<repo>/<name>) still can.
+      const fromPath = (sp?.folder ?? "").match(/\/worktrees\/([^/]+)\/[^/]+\/?$/)?.[1];
+      const project = (cwd ? this.project(sp?.machine ?? null, cwd, cx) : null) || fromPath || spaceName;
+      const branch = pane?.branch ?? sp?.branch;
+      return v_flex()
         .id(`ag-${a.address}`)
         .px(8)
-        .h(30)
+        .py(5)
+        .gap(1)
         .flex_none()
         .rounded(8)
-        .items_center()
-        .gap(9)
         .when(a.focused, (el) => el.bg(t.selected))
         .border_1().border_color(this.ring(t, a.address))
         .cursor_pointer()
@@ -413,20 +443,25 @@ export default class Agents extends View {
           cx.notify();
         })
         .on_click(() => run("pane.focus", { pane: a.pane }))
-        .when(Boolean(pic), el => el.child(div().id(`agent-fold-${a.address}`)
-          .when(subs.length > 0, el => el.on_click((_e, cx) => {
-            cx.stop_propagation();
-            this.folded.has(a.address) ? this.folded.delete(a.address) : this.folded.add(a.address);
-            cx.notify();
-          })).child(pic)))
-        .child(h_flex().flex_1().min_w(0).gap(5).items_center()
-          .child(div().min_w(0).max_w(full && more ? 120 : 200).truncate().text_color(idle ? t.muted : t.foreground).child(name))
-          .when(full && Boolean(more), el => el.child(div().flex_1().min_w(0).truncate().text_color(t.dim).child(`\u00b7 ${more}`))))
-        .when(Boolean(machine), el => el.child(div().text_size(10).text_color(t.dim).child(machine)))
-        .when(subs.length > 0, el => el.child(fold(a, subs)))
-        .when(this.hovered === a.address, el => el.child(pin))
-        .when(this.hovered !== a.address && Boolean(when), el => el.child(div().flex_none().text_size(11).text_color(t.dim).child(duration(now - when))))
-        .child(this.status(t, a, byPriority && !isPinned));
+        .child(h_flex().h(16).gap(6).items_center().text_size(11.5)
+          .when(Boolean(pic), el => el.child(div().id(`agent-fold-${a.address}`)
+            .when(subs.length > 0, el => el.on_click((_e, cx) => {
+              cx.stop_propagation();
+              this.folded.has(a.address) ? this.folded.delete(a.address) : this.folded.add(a.address);
+              cx.notify();
+            })).child(icon(a.program, 13, t.foreground))))
+          .child(h_flex().flex_1().min_w(0).gap(5).items_center()
+            .child(div().flex_none().max_w(branch ? 120 : 220).truncate().text_color(t.dim).child(project))
+            .when(Boolean(branch), el => el
+              .child(svg("mods/workspace-chrome/git-branch.svg").size(10).flex_none().text_color(t.dim))
+              .child(div().flex_1().min_w(0).truncate().text_color(t.dim).child(branch))))
+          .when(Boolean(machine), el => el.child(div().flex_none().text_size(10).text_color(t.dim).child(machine)))
+          .when(this.hovered === a.address, el => el.child(pin))
+          .when(this.hovered !== a.address && Boolean(when), el => el.child(div().flex_none().text_size(11).text_color(t.dim).child(duration(now - when)))))
+        .child(h_flex().h(18).gap(6).items_center()
+          .child(div().flex_1().min_w(0).truncate().font_medium().text_color(t.foreground).child(name))
+          .when(subs.length > 0, el => el.child(fold(a, subs)))
+          .child(this.status(t, a, byPriority && !isPinned)));
     };
 
     // Groups in list order: spaces (grouped) or priority sections. Agents of a
