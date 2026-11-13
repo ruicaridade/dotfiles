@@ -106,7 +106,7 @@ export default class Changes extends View {
     // Refreshes: the current one's number (older ones are dropped), the repo top per folder, and when the watcher may count gitdir changes again.
     this.gen = 0; this.tops = new Map(); this.quietUntil = 0;
     // Which part the keyboard walks ("diff" or "files", f switches; Tab is left to the app, which moves focus to the commit message) and the file under the files cursor.
-    this.zone = "diff"; this.fileCursor = null; this.filesScroll = VirtualListScrollHandle.new();
+    this.zone = "diff"; this.fileCursor = null; this.fileY = 0;
     try { const h = Number(localStorage.getItem("listHeight")); if (h > 0) this.listH = h; } catch {}
     this.refSearch = InputState.new({ placeholder: "Search refs…" });
     this.refSearch.on("change", (_e, cx) => { this.refQuery = this.refSearch.value(); cx.notify(); });
@@ -174,7 +174,7 @@ export default class Changes extends View {
     if (this.loading && context === this.context && !force) { this.again = true; return; }
     if (context !== this.context) {
       this.context = context; this.root = null; this.files = []; this.open = null; this.comments = []; this.composer = null;
-      this.setLines([]); this.message = ""; this.input.set_value(""); this.error = null; this.note_ = null; this.watched = null; this.closed = false; this.limited = false;
+      this.setLines([]); this.message = ""; this.input.set_value(""); this.error = null; this.note_ = null; this.watched = null; this.closed = false; this.limited = false; this.fileY = 0;
     }
     const gen = ++this.gen;
     if (!cwd) { this.loading = false; return; }
@@ -616,8 +616,8 @@ export default class Changes extends View {
   // Dragging the divider under the file list resizes it; the height is remembered across reloads.
   endDrag(cx) {
     if (!this.drag) return;
-    this.drag = null;
-    try { if (this.listH === null) localStorage.removeItem("listHeight"); else localStorage.setItem("listHeight", String(this.listH)); } catch {}
+    const kind = this.drag.kind; this.drag = null;
+    if (kind === "divider") try { if (this.listH === null) localStorage.removeItem("listHeight"); else localStorage.setItem("listHeight", String(this.listH)); } catch {}
     cx.notify();
   }
 
@@ -742,12 +742,13 @@ export default class Changes extends View {
       this.revealFile();
     } else if (this.cursorIndex() < 0) this.toFirstChange();
   }
-  // Keeps the files cursor's row fully on screen. scroll_to_item already scrolls the
-  // least it can (the row to the nearest edge, nothing when it is fully visible), so
-  // it is asked for the cursor's row on every move, as the diff's cursor does.
+  // Keeps the files cursor's row fully on screen, scrolling the least it can.
   revealFile() {
     const i = this.files.findIndex((f) => f.path === this.fileCursor);
-    if (i >= 0) this.filesScroll.scroll_to_item(i);
+    if (i < 0) return;
+    const view = this.listHeight() - 12;
+    if (i * 28 < this.fileY) this.fileY = i * 28;
+    else if ((i + 1) * 28 > this.fileY + view) this.fileY = (i + 1) * 28 - view;
   }
   // A key while the file list has the keyboard: j/k move, Enter or l opens the file and goes to its diff.
   filesKey(k, shift, cx) {
@@ -935,6 +936,45 @@ export default class Changes extends View {
       .child(h_flex().flex_1().min_w(0).whitespace_nowrap().children(spans.map((s) => s.cls ? div().text_color(colors[s.cls] ?? t.foreground).child(s.text) : div().child(s.text))));
   }
 
+  // The file list. A branch can change a thousand files, and building every row on every
+  // render made the panel crawl, so only the rows in view are built. It scrolls itself
+  // (wheel and its own scrollbar): a virtual list would also build only those rows, but its
+  // rows can't hover, show tooltips or take clicks of their own. `fileY` is the scroll, in px.
+  fileList(t, perFile, fileNav) {
+    const H = this.listHeight(), view = H - 12, n = this.files.length, total = n * 28, max = Math.max(0, total - view);
+    if (!n) return div().id("changes-list").flex_none().h(H).p(8).text_color(t.dim).child(this.error || (this.loading ? "Loading changes…" : this.root ? (this.scope === "work" ? "No uncommitted changes" : "No changes") : "No folder"));
+    this.fileY = Math.min(max, Math.max(0, this.fileY || 0));
+    const first = Math.floor(this.fileY / 28), last = Math.min(n, Math.ceil((this.fileY + view) / 28));
+    const rows = this.files.slice(first, last).map((f) => {
+      const parts = f.path.split("/"), name = parts.pop(), k = perFile[f.path];
+      const here = fileNav && this.fileCursor === f.path;
+      return h_flex().id(`change-${f.path}`).h(28).flex_none().pl(8).pr(2).gap(8).items_center().rounded(7).border_1().border_color(here ? t.accent : NONE).cursor_pointer().when(this.open === f.path, (e) => e.bg(t.selected)).hover((s) => s.bg(t.hover))
+        .on_click((_e, cx) => { this.fileCursor = f.path; this.pick(f.path, cx); })
+        .child(div().w(14).flex_none().text_size(11).text_color(f.status === "A" ? t.ansi2 : f.status === "D" ? t.ansi1 : f.status === "U" ? t.ansi1 : t.blocked).child(f.status))
+        .child(h_flex().flex_1().min_w(0).child(div().text_color(t.dim).truncate().child(parts.length ? parts.join("/") + "/" : "")).child(div().max_w(260).min_w(0).truncate().child(name)))
+        .when(f.add > 0, (e) => e.child(div().flex_none().text_size(11).text_color(t.ansi2).child(`+${f.add}`))).when(f.del > 0, (e) => e.child(div().flex_none().text_size(11).text_color(t.ansi1).child(`−${f.del}`)))
+        // One speech bubble: the draft count when there are drafts, and a click comments on the whole file.
+        .child(h_flex().id(`comment-file-${f.path}`).w(26).h(18).flex_none().gap(3).items_center().justify_center().rounded(4).cursor_pointer()
+          .when(Boolean(k), (e) => e.bg(t.accent + "33").text_size(10).text_color(t.foreground)).when(!k, (e) => e.text_color(t.muted))
+          .hover((s) => s.bg(k ? t.accent + "55" : t.hover).text_color(t.foreground))
+          .tooltip(k ? `${k} draft comment${k > 1 ? "s" : ""} · click to comment on the whole file` : "Comment on the whole file")
+          .on_click((_e, cx) => { cx.stop_propagation(); this.fileCursor = f.path; this.commentFile(f.path, cx); })
+          .when(Boolean(k), (e) => e.child(String(k))).child(svg("mods/reviewer/comment.svg").size(k ? 10 : 12)));
+    });
+    // The scrollbar: a thumb sized by how much of the list is in view, dragged like the divider.
+    const thumbH = max > 0 ? Math.max(24, Math.round(view * view / total)) : 0, thumbTop = 6 + (max > 0 ? Math.round((view - thumbH) * this.fileY / max) : 0);
+    return div().id("changes-list").flex_none().h(H).p(6).relative().overflow_hidden()
+      .on_scroll_wheel((e, cx) => {
+        cx.stop_propagation();
+        const y = Math.min(max, Math.max(0, this.fileY - (e.delta?.y ?? 0)));
+        if (y !== this.fileY) { this.fileY = y; cx.notify(); }
+      })
+      .child(div().size_full().relative().overflow_hidden().child(v_flex().absolute().left(0).right(0).top(first * 28 - this.fileY).children(rows)))
+      .when(max > 0, (e) => e.child(div().id("changes-list-thumb").absolute().right(1).top(thumbTop).w(6).h(thumbH).rounded(3).cursor_pointer()
+        .bg(this.drag?.kind === "thumb" ? t.dim : t.border).hover((s) => s.bg(t.dim))
+        .on_mouse_down("left", (ev, cx) => { cx.stop_propagation(); this.drag = { kind: "thumb", y: ev.position.y, from: this.fileY, ratio: max / Math.max(1, view - thumbH) }; cx.notify(); })));
+  }
+
   render(cx) {
     if (this.dialog) return this.dialog.render(cx);
     if (key() !== this.context) this.refresh(cx);
@@ -961,7 +1001,12 @@ export default class Changes extends View {
       .border_color(this.typing || this.noteFocused ? t.accent : t.border).focus((s) => s.border_color(t.accent)).text_color(t.foreground).text_size(13).track_focus(this.handle)
       .on_size_change((size, cx) => { const w = this.size?.width; this.size = size; if (w !== size.width) { this.rebuild(); cx.notify(); } })
       // The divider drag: moves resize the file list; a release, or the pointer leaving the panel, ends it.
-      .on_mouse_move((e, cx) => { if (!this.drag) return; this.listH = this.drag.h + (e.position.y - this.drag.y); cx.notify(); })
+      .on_mouse_move((e, cx) => {
+        if (!this.drag) return;
+        if (this.drag.kind === "thumb") this.fileY = this.drag.from + (e.position.y - this.drag.y) * this.drag.ratio;
+        else this.listH = this.drag.h + (e.position.y - this.drag.y);
+        cx.notify();
+      })
       .on_mouse_up("left", (_e, cx) => this.endDrag(cx))
       .on_hover((over, cx) => { if (!over) this.endDrag(cx); })
       .on_key_down((e, cx) => {
@@ -981,40 +1026,15 @@ export default class Changes extends View {
       .when(Boolean(this.root) && this.hasHead, (e) => e.child(h_flex().h(38).flex_none().px(14).gap(6).items_center().border_b(1).border_color(t.border)
         .child(this.scopePicker(t))
         .when(this.scope === "branch", (e) => e.child(this.refPicker(t, "source")).child(div().flex_none().text_size(12).text_color(t.dim).child("→")).child(this.refPicker(t, "target")))))
-      // The file list is virtual: a branch can change a thousand files, and drawing every row on
-      // every render made the whole panel crawl. Its rows can't hold handlers, so one click handler
-      // routes by key, and a press on the speech bubble (the row's last 28px) comments on the file.
-      .child(div().id("changes-list-box").flex_none().h(this.listHeight()).relative().p(6)
-        .on_mouse_down("left", (e) => { this.listPress = e.local_position && e.bounds ? e.bounds.size.width - e.local_position.x : null; })
-        .when(this.files.length > 0, (e) => e.child(v_virtual_list("changes-list", this.files.length, 28, (i) => `f:${this.files[i].path}`, (range) => {
-          return this.files.slice(range.start, range.end).map((f) => {
-            const parts = f.path.split("/"), name = parts.pop(), k = perFile[f.path];
-            const here = fileNav && this.fileCursor === f.path;
-            return h_flex().w_full().h(28).flex_none().pl(8).pr(2).gap(8).items_center().rounded(7).border_1().border_color(here ? t.accent : NONE).cursor_pointer().when(this.open === f.path, (e) => e.bg(t.selected)).hover((s) => s.bg(t.hover))
-              .child(div().w(14).flex_none().text_size(11).text_color(f.status === "A" ? t.ansi2 : f.status === "D" ? t.ansi1 : f.status === "U" ? t.ansi1 : t.blocked).child(f.status))
-              .child(h_flex().flex_1().min_w(0).child(div().text_color(t.dim).truncate().child(parts.length ? parts.join("/") + "/" : "")).child(div().max_w(260).min_w(0).truncate().child(name)))
-              .when(f.add > 0, (e) => e.child(div().flex_none().text_size(11).text_color(t.ansi2).child(`+${f.add}`))).when(f.del > 0, (e) => e.child(div().flex_none().text_size(11).text_color(t.ansi1).child(`−${f.del}`)))
-              // One speech bubble: the draft count when there are drafts; a press on it comments on the whole file.
-              .child(h_flex().w(26).h(18).flex_none().gap(3).items_center().justify_center().rounded(4)
-                .when(Boolean(k), (e) => e.bg(t.accent + "33").text_size(10).text_color(t.foreground)).when(!k, (e) => e.text_color(t.muted))
-                .when(Boolean(k), (e) => e.child(String(k))).child(svg("mods/reviewer/comment.svg").size(k ? 10 : 12)));
-          });
-        }).size_full().track_scroll(this.filesScroll)
-          .on_item_click((key, cx) => {
-            const path = key.slice(2), onBubble = this.listPress !== null && this.listPress !== undefined && this.listPress <= 6 + 2 + 28;
-            this.listPress = null; this.fileCursor = path;
-            if (onBubble) this.commentFile(path, cx); else this.pick(path, cx);
-          }))
-          .child(Scrollbar.vertical("changes-list").absolute().inset_0()))
-        .when(!this.files.length, (e) => e.child(div().p(2).text_color(t.dim).child(this.error || (this.loading ? "Loading changes…" : this.root ? (this.scope === "work" ? "No uncommitted changes" : "No changes") : "No folder")))))
+      .child(this.fileList(t, perFile, fileNav))
       // The divider: drag to resize the file list, double-click to fit it to the files again.
       .child(div().id("list-divider").h(7).flex_none().flex().flex_col().justify_center().cursor_row_resize().hover((s) => s.bg(t.hover)).tooltip("Drag to resize · double-click to fit")
         .on_mouse_down("left", (e, cx) => {
           cx.stop_propagation();
-          if (e.click_count >= 2) { this.listH = null; this.drag = {}; this.endDrag(cx); return; }
-          this.drag = { y: e.position.y, h: this.listHeight() }; this.listH = this.drag.h; cx.notify();
+          if (e.click_count >= 2) { this.listH = null; this.drag = { kind: "divider" }; this.endDrag(cx); return; }
+          this.drag = { kind: "divider", y: e.position.y, h: this.listHeight() }; this.listH = this.drag.h; cx.notify();
         })
-        .child(div().w_full().h(this.drag ? 2 : 1).bg(this.drag ? t.accent : t.border)))
+        .child(div().w_full().h(this.drag?.kind === "divider" ? 2 : 1).bg(this.drag?.kind === "divider" ? t.accent : t.border)))
       .when(this.limited, el => el.child(div().px(12).py(4).text_size(11).text_color(t.dim).child("Showing the first 1,000 changed files")))
       .child(h_flex().flex_1().min_h(0).items_stretch()
         .child(div().flex_1().min_w(0).min_h(0).relative().font_family(codeFont()).text_size(this.fontSize)

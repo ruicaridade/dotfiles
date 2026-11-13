@@ -32,7 +32,7 @@
                 "mod": "spaces-nav"
               },
               "size": {
-                "weight": 1
+                "weight": 0.8877804279327393
               },
               "min": 90
             },
@@ -43,7 +43,7 @@
                 "mod": "agents-nav"
               },
               "size": {
-                "weight": 1
+                "weight": 1.1122184991836548
               },
               "min": 90
             }
@@ -51,7 +51,7 @@
         }
       ],
       "size": {
-        "px": 268
+        "px": 303
       },
       "min": 44,
       "max": 480,
