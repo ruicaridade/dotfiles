@@ -2,7 +2,9 @@ import type { EngineInterface, Register } from 'claude-code'
 
 // Pictures inline in the terminal (kitty graphics in kitty, Ghostty and Herdr):
 // a thumbnail under every Read of an image file, and a `show_image` tool the
-// model calls to put a picture in front of the person.
+// model calls to put a picture in front of the person. Clicking a thumbnail (or
+// its zoom button, or `/view-image <path>`) opens the full picture in Herdr's
+// image-viewer dialog, which zooms and pans on the GPU; outside Herdr, in imv.
 
 const TOOL = 'show_image'
 const SHOW = `mcp__inline-images__${TOOL}`
@@ -15,6 +17,8 @@ const EDGES = [1600, 1100, 720]
 const CELL_W = 10
 const CELL_H = 21
 const MAX_ROWS = 22
+// The viewer gets the picture this big at most: enough to zoom into a screenshot.
+const VIEW_EDGE = 6000
 
 type Pic = { png: string; width: number; height: number }
 
@@ -22,12 +26,19 @@ type Pic = { png: string; width: number; height: number }
 const pics = new Map<string, Promise<Pic | null>>()
 
 const base = (path: string) => path.split('/').pop() ?? path
+const slug = (s: string) => s.replace(/[^\w-]/g, '_').slice(-120)
+
+async function size($: EngineInterface, file: string) {
+  const r = await $.process.run(['magick', 'identify', '-format', '%w %h', file])
+  const [width, height] = r.stdout.trim().split(' ').map(Number)
+  return width && height ? { width, height } : null
+}
 
 // Any image magick reads, as a PNG small enough for Image.
 async function convert($: EngineInterface, path: string, id: string): Promise<Pic | null> {
   await $.process.run(['mkdir', '-p', CACHE])
   for (const edge of EDGES) {
-    const out = `${CACHE}/${id.replace(/[^\w-]/g, '_')}-${edge}.png`
+    const out = `${CACHE}/${slug(id)}-${edge}.png`
     if (!(await $.fs.exists(out))) {
       const made = await $.process.run(
         ['magick', `${path}[0]`, '-auto-orient', '-resize', `${edge}x${edge}>`, '-strip', out],
@@ -35,11 +46,10 @@ async function convert($: EngineInterface, path: string, id: string): Promise<Pi
       )
       if (made.exitCode !== 0) return null
     }
-    const size = await $.process.run(['magick', 'identify', '-format', '%w %h', out])
-    const [width, height] = size.stdout.trim().split(' ').map(Number)
-    if (!width || !height) return null
+    const dims = await size($, out)
+    if (!dims) return null
     const { base64 } = await $.fs.read(out, { as: 'bytes' })
-    if ((base64.length * 3) / 4 <= MAX_BYTES) return { png: base64, width, height }
+    if ((base64.length * 3) / 4 <= MAX_BYTES) return { png: base64, ...dims }
   }
   return null
 }
@@ -53,7 +63,7 @@ function picFor($: EngineInterface, id: string, path: string): Promise<Pic | nul
   return pic
 }
 
-// The box in cells: natural size, no wider than the room, no taller than MAX_ROWS.
+// The thumbnail's box in cells: natural size, no wider than the room, no taller than MAX_ROWS.
 function cells(pic: Pic, room: number) {
   let columns = Math.min(Math.ceil(pic.width / CELL_W), room, 255)
   let rows = Math.round((columns * CELL_W * pic.height) / pic.width / CELL_H)
@@ -62,6 +72,36 @@ function cells(pic: Pic, room: number) {
     columns = Math.round((rows * CELL_H * pic.width) / pic.height / CELL_W)
   }
   return { columns: Math.max(1, Math.min(columns, 255)), rows: Math.max(1, Math.min(rows, 255)) }
+}
+
+// Herdr's viewer reads pictures from its own home (image() resolves there): put a
+// PNG copy in data/image-viewer, write the request beside it, and open the viewer.
+async function openInHerdr($: EngineInterface, path: string): Promise<boolean> {
+  const inHerdr = (await $.process.run(['printenv', 'HC_TERMINAL_ID'])).stdout.trim() !== ''
+  if (!inHerdr) return false
+  const home = (await $.process.run(['sh', '-c', 'printf %s "${HERDR_APP_HOME:-$HOME/.config/herdr-app}"'])).stdout
+  const dir = `${home}/data/image-viewer`
+  // Keep the last few copies: the dialog may still show one.
+  await $.process.run(['sh', '-c', 'mkdir -p "$1" && cd "$1" && ls -t v-*.png 2>/dev/null | tail -n +6 | xargs -r rm -f', 'sh', dir])
+  const name = `v-${Math.round(await $.clock.now())}.png`
+  const made = await $.process.run(
+    ['magick', `${path}[0]`, '-auto-orient', '-resize', `${VIEW_EDGE}x${VIEW_EDGE}>`, '-strip', `${dir}/${name}`],
+    { timeoutMs: 30000 },
+  )
+  if (made.exitCode !== 0) return false
+  const dims = await size($, `${dir}/${name}`)
+  if (!dims) return false
+  await $.fs.write(`${dir}/request.json`, JSON.stringify({ file: `data/image-viewer/${name}`, ...dims, name: base(path) }))
+  const opened = await $.process.run(['herdr-app', 'do', 'mod.open', '--name', 'image-viewer'])
+  return opened.exitCode === 0 && !opened.stdout.includes('"error"')
+}
+
+async function openViewer($: EngineInterface, path: string) {
+  if (await openInHerdr($, path).catch(() => false)) return
+  // Not in Herdr (or it refused): a desktop viewer, detached from this session.
+  const viewer = (await $.process.run(['sh', '-c', 'command -v imv || command -v xdg-open'])).stdout.trim()
+  if (viewer) await $.process.run(['setsid', '-f', viewer, path])
+  else $.ui.toast(`No image viewer found for ${base(path)}`)
 }
 
 export const register: Register = on => {
@@ -83,7 +123,17 @@ export const register: Register = on => {
       },
       isDeferred: false,
     })
+    await $.command.register({ name: 'view-image', description: 'Open an image in the zoomable viewer', argumentHint: '<path>' })
     return started
+  })
+
+  on('command.run', { command: 'view-image' }, async ($, e) => {
+    const arg = e.args.trim()
+    if (!arg) return { text: 'Usage: /view-image <path to an image>' }
+    const path = (await $.fs.stat(arg, { resolve: true }).catch(() => undefined))?.realPath
+    if (!path) return { text: `No such file: ${arg}` }
+    await openViewer($, path)
+    return { text: `Opened ${base(path)} in the image viewer.` }
   })
 
   on('tool.call', { tool: SHOW }, async ($, e) => {
@@ -113,17 +163,33 @@ export const register: Register = on => {
 
     const pic = await picFor($, e.props.tool_use_id, path)
     if (!pic) return row
-    const { Box, Image, Text } = $.ui.resolve(e)
+    const { Box, Button, Client, Image, Text } = $.ui.resolve(e)
     const room = Math.max(10, Math.min((e.viewport?.columns ?? 80) - 6, 120))
     const { columns, rows } = cells(pic, room)
+    const shown = path
     return (
       <Box flexDirection="column">
         {row}
         <Box flexDirection="column" paddingLeft={2} marginTop={1}>
-          <Image key="pic" source={{ png: pic.png }} columns={columns} rows={rows} alt={`[image: ${base(path)}]`} />
-          {caption ? <Text dimColor>{caption}</Text> : null}
+          <Box position="relative" width={columns} height={rows}>
+            <Image key="pic" source={{ png: pic.png }} columns={columns} rows={rows} alt={`[image: ${base(path)}]`} />
+            <Box position="absolute" top={0} left={0}>
+              <Client key="hit" module="./hit.tsx" props={{ path }} width={columns} height={rows} />
+            </Box>
+          </Box>
+          <Box flexDirection="row" gap={1}>
+            {caption ? <Text dimColor>{caption}</Text> : null}
+            <Button key="zoom" plain label="⤢ zoom" onPress={() => void openViewer($, shown)} />
+          </Box>
         </Box>
       </Box>
     )
+  })
+
+  // A click on a thumbnail (hit.tsx) opens it.
+  on('ui.message', async ($, e, next) => {
+    const data = e.data as { open?: string } | null
+    if (data?.open) await openViewer($, data.open)
+    return next(e)
   })
 }
