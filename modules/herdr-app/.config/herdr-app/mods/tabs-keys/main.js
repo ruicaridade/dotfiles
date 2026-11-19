@@ -1,17 +1,9 @@
 import { View, div, svg, image } from "gpui-kit";
 import { h_flex, ScrollHandle } from "gpui-base";
-import { spaces, panes, terminals, run, hc, notify, openOverlay, theme, window, shared, layout, settings, nextCommand } from "herdr";
+import { spaces, panes, terminals, run, openOverlay, theme, window, shared, layout, settings, nextCommand } from "herdr";
 
-// tabs-keys (a copy of the shipped `tabs`): the side panel's tabs are Editor and
-// Changes; the commands "tabs-keys.editor" and "tabs-keys.changes" do what their
-// buttons do, for keys.
-//
-// Editor: one Neovim per space, started on first show in the space's folder (its
-// first terminal's, else where it was made) as a hidden hc terminal labeled
-// `herdr-editor.space=<space id>`. A layout block can only show a fixed address, so
-// the `editor` block is pointed at the shown space's nvim (layout.set) whenever the
-// panel shows it. Quitting nvim closes the panel; the next show starts a new one.
-const EDITOR = "herdr-editor.space";
+// tabs-keys (a copy of the shipped `tabs`): the side panel shows Changes; the command
+// "tabs-keys.changes" does what its button does, for keys.
 // "tabs-keys.lazygit": see lazygit.js.
 import { toggleLazygit, lazygitEnded } from "./lazygit.js";
 
@@ -29,80 +21,22 @@ export default class Tabs extends View {
     this.pressed = null;
     this.scroll = ScrollHandle.new();
     this.panels = JSON.parse(localStorage.getItem("panels") ?? "{}");
-    this.editors = JSON.parse(localStorage.getItem("editors") ?? "{}"); // space id -> its nvim's address
-    this.tried = {}; // space id -> when an nvim was last started for it
     cx.spawn(async (cx) => {
       for (;;) {
         const c = await nextCommand();
-        if (c === "editor" || c === "changes") this.togglePanel(c);
+        if (c === "changes") this.togglePanel(c);
         else if (c === "lazygit") toggleLazygit(cx);
         cx.notify();
       }
     });
   }
 
-  // Show the side panel on `id` ("editor" or "changes"), or hide it when it already shows that.
+  // Show the side panel on `id` ("changes"), or hide it when it already shows that.
   togglePanel(id) {
     const root = layout(), panel = find(root, "panel"), body = find(root, "panel-body");
     if (panel && !panel.hidden && body?.active === id) { run("layout.hide", { id: "panel" }); return; }
-    this.focusEditor = id === "editor";
     run("layout.select", { stack: "panel-body", child: id });
     run("layout.show", { id: "panel" });
-  }
-
-  // While the panel shows the editor: point it at this space's nvim (starting one if
-  // needed), give it the keyboard when a key opened it, and close the panel when nvim quits.
-  syncEditor(space, root, cx) {
-    const block = find(root, "editor"), at = block?.content?.terminal, saved = this.editors[space.id];
-    const mine = terminals().find(x => x.state === "live" && (x.labels?.[EDITOR] === space.id || x.address === saved));
-    if (mine && at === mine.address) {
-      if (this.focusEditor) { this.focusEditor = false; run("pane.focus", { terminal: mine.address }); }
-      return;
-    }
-    if (mine) { this.pointEditor(mine.address); return; }
-    // This space's nvim was shown and has quit: close the panel rather than start another.
-    if (at && at === saved) {
-      delete this.editors[space.id];
-      localStorage.setItem("editors", JSON.stringify(this.editors));
-      run("layout.hide", { id: "panel" });
-      return;
-    }
-    if (this.starting || Date.now() - (this.tried[space.id] ?? 0) < 10000) return;
-    this.starting = true;
-    this.tried[space.id] = Date.now();
-    cx.spawn(async (cx) => {
-      try {
-        // Editors left by ended spaces (this computer's), and this space's quit ones.
-        for (const x of terminals()) {
-          const of = x.labels?.[EDITOR];
-          if (of && !x.address.includes("/") && (!spaces().some(s => s.id === of) || (of === space.id && x.state !== "live"))) run("terminal.kill", { terminal: x.address });
-        }
-        const tabs = new Set((space.tabs ?? []).map(t => t.id));
-        const cwd = panes().find(p => tabs.has(p.tab) && p.cwd)?.cwd || space.folder;
-        const args = ["run", "--bg", "--json", "--no-parent", "--no-notify", "--label", `${EDITOR}=${space.id}`];
-        if (space.machine) args.push("--on", space.machine);
-        if (cwd) args.push("--cwd", cwd);
-        const r = await hc([...args, "--", "nvim"]);
-        if (r.code !== 0) throw new Error(r.stderr || r.stdout || "hc run failed");
-        const address = JSON.parse(r.stdout).address;
-        this.editors[space.id] = address;
-        localStorage.setItem("editors", JSON.stringify(this.editors));
-        this.pointEditor(address);
-      } catch (e) {
-        notify({ title: "Couldn't start the editor", body: String(e.message ?? e), level: "error" });
-      } finally {
-        this.starting = false;
-        cx.notify();
-      }
-    });
-  }
-
-  // Show `address` in the layout's editor block (a copy of the tree: layout() is Herdr's).
-  pointEditor(address) {
-    const root = JSON.parse(JSON.stringify(layout())), block = find(root, "editor");
-    if (!block || block.content?.terminal === address) return;
-    block.content = { terminal: address };
-    run("layout.set", { layout: root });
   }
 
   // The side panel is remembered per space: switching shows that space's choice
@@ -175,9 +109,8 @@ export default class Tabs extends View {
       ? Math.max(10, (root.traffic_lights[0] + 64) / settings().zoom - (sidebar?.hidden ? 0 : sidebar?.size?.px ?? 0))
       : 10;
     const panel = find(root, "panel"), body = find(root, "panel-body");
-    const enabled = ["editor", "changes"];
+    const enabled = ["changes"];
     this.syncPanel(space, panel, body, enabled);
-    if (space && panel && !panel.hidden && body?.active === "editor") this.syncEditor(space, root, cx);
     const panelButton = (id, label, icon) => {
       const on = panel && !panel.hidden && body?.active === id;
       return h_flex().id(`panel-${id}`).h(26).px(8).gap(5).flex_none().items_center().rounded(6)
@@ -192,7 +125,6 @@ export default class Tabs extends View {
         .on_size_change((_size, cx) => { if (active >= 0) { this.scroll.scroll_to_item(active); cx.notify(); } })
         .children(shown.map(item)))
       .child(button("tab-new", "+", () => openOverlay({ mod: "new-menu", kind: "popup", width: 250, height: 512 })))
-      .child(panelButton("editor", "Editor", "mods/workspace-chrome/square-pen.svg"))
       .child(panelButton("changes", "Changes", "mods/changes/changes.svg"))
       .when(w?.buttons, el => el.child(button("minimize", w.platform === "windows" ? svg("mods/tabs-keys/win-min.svg").size(16) : "−", () => run("window.minimize")))
         .child(button("maximize", w.platform === "windows" ? svg(`mods/tabs-keys/${w.maximized ? "win-restore" : "win-max"}.svg`).size(16) : "□", () => run("window.maximize")))

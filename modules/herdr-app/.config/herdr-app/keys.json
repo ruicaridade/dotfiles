@@ -73,8 +73,7 @@
     "shift-insert": "terminal.paste"
   },
   "layout:main-reviewer": {
-    "ctrl-shift-f": "tabs-keys.editor",
-    "ctrl-shift-g": "tabs-keys.changes",
+    "alt-g": "tabs-keys.changes",
     "ctrl-shift-l": "tabs-keys.lazygit"
   }
 }

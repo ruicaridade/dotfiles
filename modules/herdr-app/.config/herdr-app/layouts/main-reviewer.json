@@ -117,13 +117,6 @@
                   "type": "stack",
                   "children": [
                     {
-                      "id": "editor",
-                      "type": "block",
-                      "content": {
-                        "terminal": "t0"
-                      }
-                    },
-                    {
                       "id": "changes",
                       "type": "block",
                       "content": {
@@ -131,7 +124,7 @@
                       }
                     }
                   ],
-                  "active": "editor"
+                  "active": "changes"
                 }
               ],
               "size": {
