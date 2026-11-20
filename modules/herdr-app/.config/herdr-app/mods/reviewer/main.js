@@ -55,10 +55,10 @@ const MISSING = /os error 2|No such file or directory/;
 const LINE = new Set(["+", "-", " "]);
 // The panel's keys, as the `?` card lists them.
 const KEYS = [
-  ["f", "switch between files and diff"], ["j k  ↓ ↑", "move"], ["shift + move", "select lines"], ["] [", "next / previous hunk"], ["n p", "next / previous file"],
+  ["f", "switch between files and diff"], ["j k  ↓ ↑", "move"], ["shift + move", "select lines"], ["] [", "next / previous hunk"], ["l h", "next / previous file"],
   ["g G", "top / bottom"], ["ctrl-d ctrl-u", "half a page"], ["c  Enter", "comment (edits a comment)"], ["C", "comment on the whole file"],
   ["d", "delete the comment"], ["a", "ask about the line or selection"], ["A", "ask about the whole diff"], ["s", "submit review"],
-  ["D D", "discard every comment"], ["v", "switch scope"], ["m", "commit message"], ["h", "to the files"], ["Enter  l", "in files: open the file"], ["Esc", "clear selection, close"], ["alt-h/j/k/l", "leave the panel"],
+  ["D D", "discard every comment"], ["v", "switch scope"], ["m", "commit message"], ["←", "to the files"], ["Enter  l", "in files: open the file"], ["Esc", "clear selection, close"], ["alt-h/j/k/l", "leave the panel"],
 ];
 // The code font: the terminal's (`font` in settings, JetBrains Mono when
 // unset), one size smaller than the terminal (`font_size`, 14 when unset);
@@ -714,8 +714,8 @@ export default class Changes extends View {
       case "g": this.move(shift ? Infinity : -Infinity, false); return true;
       case "]": this.jumpHunk(1); return true;
       case "[": this.jumpHunk(-1); return true;
-      case "n": this.stepFile(1, cx); return true;
-      case "p": this.stepFile(-1, cx); return true;
+      case "l": this.stepFile(1, cx); return true;
+      case "h": this.stepFile(-1, cx); return true;
       case "enter": this.commentHere(cx); return true;
       case "c": if (shift) { if (this.open) this.commentFile(this.open, cx); } else this.commentHere(cx); return true;
       case "a": if (shift) this.askAbout(null, cx); else this.askHere(cx); return true;
@@ -724,7 +724,7 @@ export default class Changes extends View {
       case "s": this.submit(cx); return true;
       case "v": this.cycleScope(cx); return true;
       case "m": this.input.focus(); return true;
-      case "h": case "left": this.setZone("files"); return true;
+      case "left": this.setZone("files"); return true;
       case "escape":
         if (this.keysHelp) this.keysHelp = false;
         else if (this.anchor) this.anchor = null;
