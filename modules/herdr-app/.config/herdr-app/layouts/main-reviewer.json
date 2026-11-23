@@ -22,32 +22,11 @@
           "window_drag": true
         },
         {
-          "id": "sidebar-lists",
-          "type": "column",
-          "children": [
-            {
-              "id": "spaces",
-              "type": "block",
-              "content": {
-                "mod": "spaces-nav"
-              },
-              "size": {
-                "weight": 0.8877804279327393
-              },
-              "min": 90
-            },
-            {
-              "id": "agents",
-              "type": "block",
-              "content": {
-                "mod": "agents-nav"
-              },
-              "size": {
-                "weight": 1.1122184991836548
-              },
-              "min": 90
-            }
-          ]
+          "id": "threads",
+          "type": "block",
+          "content": {
+            "mod": "threads"
+          }
         }
       ],
       "size": {

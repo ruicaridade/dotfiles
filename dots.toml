@@ -62,6 +62,8 @@ links = [
   { src = ".config/herdr-app/mods/reviewer", dest = ".config/herdr-app/mods/reviewer" },
   { src = ".config/herdr-app/mods/spaces-nav", dest = ".config/herdr-app/mods/spaces-nav" },
   { src = ".config/herdr-app/mods/tabs-keys", dest = ".config/herdr-app/mods/tabs-keys" },
+  { src = ".config/herdr-app/mods/thread-new", dest = ".config/herdr-app/mods/thread-new" },
+  { src = ".config/herdr-app/mods/threads", dest = ".config/herdr-app/mods/threads" },
   { src = ".config/herdr-app/mods/worktree-dialog", dest = ".config/herdr-app/mods/worktree-dialog" },
   { src = ".config/herdr-app/mods/worktree-new", dest = ".config/herdr-app/mods/worktree-new" },
   { src = ".config/herdr-app/mods/worktree-remove", dest = ".config/herdr-app/mods/worktree-remove" },
