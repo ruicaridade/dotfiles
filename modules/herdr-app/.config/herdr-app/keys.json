@@ -61,7 +61,8 @@
     "alt-shift-w": "mod.open:worktree-remove",
     "alt-f": "threads.toggle",
     "alt-a": "threads.toggle",
-    "alt-shift-s": "threads.settle"
+    "alt-shift-s": "threads.settle",
+    "alt-p": "mod.open:pulls"
   },
   "terminal": {
     "ctrl-backspace": "send:\u0017",

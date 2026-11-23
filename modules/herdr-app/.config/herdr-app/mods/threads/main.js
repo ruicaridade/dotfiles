@@ -767,6 +767,7 @@ export default class Threads extends View {
         .child(h_flex().id("search").flex_1().h(30).px(6).gap(8).rounded(7).items_center().text_color(t.dim).cursor_pointer()
           .hover((s) => s.bg(t.hover).text_color(t.foreground)).on_click(() => run("mod.open", { name: "picker" }))
           .child(svg(I("search")).size(15)).child("Search"))
+        .child(this.headerButton(t, "pulls", "git-compare", "Pull requests (alt-p)", () => run("mod.open", { name: "pulls" })))
         .child(this.headerButton(t, "add-project", "folder-plus", "Add project", () => openOverlay({ mod: "thread-new", kind: "dialog", width: 560, props: { pick: true } })))
         .child(this.headerButton(t, "new-thread", "square-pen", "New thread (ctrl-shift-n)", () => run("mod.open", { name: "thread-new" }))))
       // The inbox
