@@ -7,7 +7,7 @@
 
 import { View, div, image, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input, Scrollbar, ScrollHandle } from "gpui-base";
-import { run, props, closeOverlay, theme, spaces, panes, focused, exec, home, shared, setShared, pickFolder, knownAgents, checking } from "herdr";
+import { run, props, closeOverlay, theme, spaces, panes, focused, exec, home, shared, setShared, pickFolder, knownAgents, checking, window } from "herdr";
 
 const I = (name) => "mods/workspace-chrome/" + name + ".svg";
 const PROJECTS = "threads.projects"; // [{ path, name, machine, used }]
@@ -73,6 +73,13 @@ export default class ThreadNew extends View {
     this.scroll = ScrollHandle.new();
     this.handle.focus();
     cx.timer.after(80, () => { this.input.focus(); this.input.set_selected_range({ start: 0, end: this.text.length }); });
+    // Close when the keyboard goes elsewhere in the window (alt-a, a click on a pane...).
+    // Another app (or the folder picker) taking the window's focus doesn't count.
+    this.inputFocused = false;
+    this.input.on("focus", () => { this.inputFocused = true; });
+    this.input.on("blur", () => { this.inputFocused = false; });
+    this.born = Date.now();
+    cx.timer.every(250, () => this.checkFocus());
     this.sort();
     cx.spawn(async (cx) => {
       // Every repo an open space is in is a project, and the focused one is preselected.
@@ -127,7 +134,9 @@ export default class ThreadNew extends View {
 
   addProject(cx) {
     cx.spawn(async (cx) => {
-      const folder = await pickFolder({ prompt: "Add project" });
+      this.picking = true;
+      let folder;
+      try { folder = await pickFolder({ prompt: "Add project" }); } finally { this.picking = false; this.born = Date.now(); }
       if (!folder) return;
       const repo = await repoOf(folder, null);
       if (!repo) { this.error = tilde(folder, this.userHome) + " isn't in a git repository."; cx.notify(); return; }
@@ -156,7 +165,14 @@ export default class ThreadNew extends View {
   }
 
   close() {
+    if (this.closed) return;
+    this.closed = true;
     closeOverlay(props().overlay);
+  }
+
+  checkFocus() {
+    if (checking() || this.picking || this.busy || Date.now() - this.born < 600 || !window()?.active) return;
+    if (!this.inputFocused && !this.handle.is_focused()) this.close();
   }
 
   create(cx) {
