@@ -59,7 +59,7 @@
     "shift-f2": "space.rename",
     "alt-shift-n": "mod.open:worktree-new",
     "alt-shift-w": "mod.open:worktree-remove",
-    "alt-f": "threads.toggle",
+    "alt-f": "threads.spaces",
     "alt-a": "threads.toggle",
     "alt-shift-s": "threads.settle",
     "alt-p": "mod.open:pulls"

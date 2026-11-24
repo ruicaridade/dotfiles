@@ -88,7 +88,7 @@ export default class ThreadNew extends View {
       const found = await Promise.all(spaces().map(async (s) => {
         const at = place(s, ps);
         if (!at) return null;
-        try { return { repo: await repoOf(at, s.machine), focused: s.id === f?.space }; } catch { return null; }
+        try { return { repo: await repoOf(at, s.machine), focused: s.id === (props()?.space ?? f?.space) }; } catch { return null; }
       }));
       let preselect = null;
       for (const x of found) {
