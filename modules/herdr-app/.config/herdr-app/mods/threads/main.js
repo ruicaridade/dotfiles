@@ -12,6 +12,12 @@
 // unfold all of them under the card. Click one (or Enter on it) to peek at it. A sub-agent
 // waiting on you makes its card say Needs you.
 //
+// Settling stops the thread's agents (Ctrl+C twice, then SIGTERM; the pane's shell stays) and
+// remembers how to bring each back (HARNESSES below): Claude Code and Copilot by their exact
+// session id, the rest by their own "continue the latest session in this folder" flag. When the tab comes
+// back from Settled, by any route, each one is started again in its shell, resuming its
+// conversation. Kept in shared "threads.parked".
+//
 // Order: yours. Drag a card onto another to move it, or Pick it from its menu and move it
 // with j/k. New threads (and ones coming back from Settled) go on top. Kept in shared
 // "threads.order".
@@ -32,7 +38,7 @@
 
 import { View, div, image, svg } from "gpui-kit";
 import { v_flex, h_flex, ScrollHandle, Popup } from "gpui-base";
-import { spaces, agents, terminals, panes, focused, run, exec, theme, shared, setShared, setAgentOrder, openOverlay, closeOverlay, props, window, layout, nextCommand, notify, home, checking } from "herdr";
+import { spaces, agents, terminals, panes, focused, run, exec, hc, readTextFile, theme, shared, setShared, setAgentOrder, openOverlay, closeOverlay, props, window, layout, nextCommand, notify, home, checking } from "herdr";
 
 const I = (name) => "mods/workspace-chrome/" + name + ".svg";
 
@@ -142,6 +148,31 @@ const subStatus = (k, listed) => {
   return s === "error" ? "blocked" : s === "done" ? "idle" : RANK[s] ? s : "idle";
 };
 const ORDER = "threads.order";
+// How each harness resumes. Tested by stopping and resuming a real session (2026-11-24):
+// claude, codex, copilot, opencode, omp, grok, agy. Not testable here (no login or model):
+// pi and kimi (flags from --help, cwd-scoped), cursor-agent, crush, kiro, gemini, amp (amp
+// restarts its command: it has no non-interactive "continue last").
+const HARNESSES = [
+  { name: "claude", match: /^claude/, resume: (bin, id) => (id ? [bin, "--resume", id] : [bin, "--continue"]) },
+  { name: "codex", match: /^codex/, resume: (bin) => [bin, "resume", "--last"] },
+  { name: "copilot", match: /^copilot/, resume: (bin, id) => (id ? [bin, "--resume=" + id] : [bin, "--continue"]) },
+  { name: "opencode", match: /^opencode/, resume: (bin) => [bin, "--continue"] },
+  { name: "omp", match: /^omp$/, resume: (bin) => [bin, "--continue"] },
+  { name: "pi", match: /^pi$/, resume: (bin) => [bin, "--continue"] },
+  { name: "grok", match: /^grok/, resume: (bin) => [bin, "--continue"] },
+  { name: "agy", match: /^(agy|antigravity)$/, resume: (bin) => [bin, "--continue"] },
+  { name: "kimi", match: /^kimi/, bin: "kimi", resume: (bin) => [bin, "--continue"] },
+  { name: "cursor", match: /^(cursor-agent|agent)$/, resume: (bin) => [bin, "--continue"] },
+  { name: "crush", match: /^crush/, resume: (bin) => [bin, "--continue"] },
+  { name: "kiro", match: /^kiro/, resume: (bin) => [bin, "chat", "--resume"] },
+  { name: "gemini", match: /^gemini/, resume: (bin) => [bin, "--resume", "latest"] },
+  { name: "amp", match: /^amp/ },
+];
+const PARKED = "threads.parked";
+// The panes of a tab, from the snapshot render takes (see render: this.panesNow).
+let PANES = [];
+const panesInTab = (tab) => PANES.filter((p) => p.tab === tab); // tab id -> { space, title, agents: [{ shell, argv, program }] }
+const quote = (s) => (/^[A-Za-z0-9_\/.:=@%+-]+$/.test(s) ? s : "'" + s.replace(/'/g, "'\\''") + "'");
 const CLEAN_AFTER = 7 * 86400000;
 const WARNED = "cleanup.warned"; // path -> the reason it was last kept, so it's said once
 
@@ -170,6 +201,9 @@ export default class Threads extends View {
     this.rows = []; // every thread as last drawn
     this.menu = null; // { id, at }: the menu open on that thread
     this.picking = null; // the thread being moved with j/k
+    this.toPark = []; // threads just settled, whose agents are stopped on the next poll
+    this.cxTimer = (ms, fn) => cx.timer.after(ms, () => fn());
+    this.parking = new Set();
     this.unfolded = new Set(JSON.parse(localStorage.getItem("unfolded") ?? "[]")); // threads showing their sub-agents
     this.subChanged = JSON.parse(localStorage.getItem(SUB_CHANGED) ?? "{}");
     this.pressed = null; // the card a drag started on
@@ -196,6 +230,7 @@ export default class Threads extends View {
   // ---- git, per place: project name, linked worktree, uncommitted changes ----
 
   poll(cx) {
+    this.parkAndResume(cx);
     const ps = panes();
     const now = Date.now();
     const front = window()?.active;
@@ -380,6 +415,113 @@ export default class Threads extends View {
     else run("terminal.peek", { terminal: address });
   }
 
+  // ---- stopping agents on settle, resuming them when the thread is back ----
+
+  parkAndResume(cx) {
+    for (const th of this.toPark.splice(0)) {
+      if (this.parking.has(th.id)) continue;
+      this.parking.add(th.id);
+      cx.spawn(async (cx) => {
+        try { await this.park(th); } catch (e) { console.log("threads park:", String(e)); }
+        this.parking.delete(th.id);
+        cx.notify();
+      });
+    }
+    const parked = shared(PARKED) ?? {};
+    const tabs = new Map(spaces().flatMap((s) => s.tabs.map((tb) => [tb.id, { s, tb }])));
+    let changed = false;
+    const next = { ...parked };
+    for (const [id, rec] of Object.entries(parked)) {
+      const at = tabs.get(id);
+      if (!at && tabs.size) { delete next[id]; changed = true; continue; } // the tab is gone
+      if (at && !at.tb.settled && !this.parking.has(id)) {
+        delete next[id];
+        changed = true;
+        cx.spawn(async () => { try { await this.resume(at.s, at.tb, rec); } catch (e) { console.log("threads resume:", String(e)); } });
+      }
+    }
+    if (changed) setShared(PARKED, next);
+  }
+
+  // The harness a terminal runs, from its launch command (Herdr starts agents as
+  // `bash -ic '"$@"; exec "$0" -i' bash <cmd...>`; Kimi renames its process, so the launch
+  // command is the truer name), else its foreground program.
+  harnessOf(info) {
+    const a = info.argv ?? [];
+    const launched = a.length > 4 && /"\$@"/.test(a[2] ?? "") ? a.slice(4) : null;
+    const cmd = launched ?? info.foreground?.argv ?? [];
+    const base = (cmd[0] ?? "").split("/").pop();
+    const h = HARNESSES.find((x) => x.match.test(base)) ?? HARNESSES.find((x) => x.match.test((info.foreground?.argv?.[0] ?? "").split("/").pop()));
+    return h ? { h, bin: launched ? cmd[0] : (h.bin ?? info.foreground.argv[0]), cmd } : null;
+  }
+
+  // The exact session to resume, where the harness says which one this process has.
+  async sessionId(h, pid, on) {
+    if (h.name === "claude" && !on) {
+      try { return JSON.parse(await readTextFile(home() + "/.claude/sessions/" + pid + ".json"))?.sessionId ?? null; } catch { return null; }
+    }
+    if (h.name === "copilot") {
+      try {
+        const r = await exec("sh", ["-c", "ls -l /proc/" + pid + "/fd 2>/dev/null"], { on, timeout: 5000 });
+        return r.stdout.match(/session-state\/([0-9a-f-]{36})\//)?.[1] ?? null;
+      } catch { return null; }
+    }
+    return null;
+  }
+
+  // Stop an agent the way a person would (Ctrl+C twice), then SIGTERM if it's still there.
+  // True if it's gone; `hard` when it took a signal (its terminal modes may be left set).
+  async stop(address, fgPid, on) {
+    const fgOf = async () => { try { return JSON.parse((await hc(["get", address, "--json"])).stdout).foreground?.pid; } catch { return null; } };
+    const wait = async (ms) => { for (let t = 0; t < ms; t += 250) { await new Promise((r) => this.cxTimer(250, r)); if ((await fgOf()) !== fgPid) return true; } return false; };
+    await hc(["keys", address, "ctrl+c"]);
+    await new Promise((r) => this.cxTimer(400, r));
+    await hc(["keys", address, "ctrl+c"]);
+    if (await wait(4000)) return { gone: true, hard: false };
+    await exec("kill", ["-TERM", String(fgPid)], { on, timeout: 5000 }).catch(() => null);
+    if (await wait(3000)) return { gone: true, hard: true };
+    return { gone: false };
+  }
+
+  // Stop the thread's agents, keeping their shells, and remember how to resume them.
+  async park(th) {
+    const on = th.s.machine ?? null;
+    const out = [];
+    // Every terminal of the tab running a known harness, whether or not it reports a status.
+    const terms = panes().filter((p) => p.tab === th.id && p.terminal).map((p) => p.terminal);
+    for (const address of terms) {
+      let info;
+      try { info = JSON.parse((await hc(["get", address, "--json"])).stdout); } catch { continue; }
+      const fg = info.foreground;
+      // Only an agent running under the pane's shell: one that is the terminal's own program
+      // would take its pane (and maybe the tab) with it, so that one keeps running.
+      if (!fg?.pid || fg.pid === info.pid) continue;
+      const found = this.harnessOf(info);
+      if (!found) continue;
+      const id = await this.sessionId(found.h, fg.pid, on);
+      const argv = found.h.resume ? found.h.resume(found.bin, id) : found.cmd;
+      const stopped = await this.stop(address, fg.pid, on);
+      if (!stopped.gone) continue;
+      const a = th.agents.find((x) => x.address === address);
+      out.push({ shell: address, cwd: fg.cwd ?? null, argv, reset: stopped.hard, harness: found.h.name,
+        program: a?.program ? { key: a.program.key, name: a.program.name, icon: a.program.icon, tint: a.program.tint } : null });
+    }
+    if (!out.length) return;
+    const title = /^t[0-9a-z]+$/.test(th.title) ? (out[0].program?.name ?? th.title) : th.title;
+    setShared(PARKED, { ...(shared(PARKED) ?? {}), [th.id]: { space: th.s.id, title, agents: out } });
+  }
+
+  // Start each parked agent again in its shell (or, if that shell is gone, in a new tab).
+  async resume(s, tab, rec) {
+    const live = new Map(terminals().map((x) => [x.address, x]));
+    for (const a of rec.agents) {
+      // A signalled TUI can leave mouse or keyboard modes on: reset the terminal first.
+      const cmd = (a.reset ? "reset; " : "") + a.argv.map(quote).join(" ");
+      if (live.get(a.shell)?.state === "live") await hc(["send", a.shell, cmd]);
+      else run("tab.new", { space: s.id, ...(a.cwd ? { folder: a.cwd } : {}), argv: a.argv });
+    }
+  }
+
   // ---- what a thread is ----
 
   // Stamps threads (tabs) whose state changed; a new one counts as activity.
@@ -406,8 +548,8 @@ export default class Threads extends View {
   }
 
   // Worktree spaces always show (every tab); other spaces only their tabs with an agent.
-  isThread({ s, agents: mine }, key) {
-    if (mine.length) return true;
+  isThread({ s, tab, agents: mine }, key) {
+    if (mine.length || (shared(PARKED) ?? {})[tab.id]) return true;
     const g = this.git[key];
     return g ? g.linked : /\/worktrees\/[^/]+\/[^/]+\/?$/.test(s.folder ?? "");
   }
@@ -417,7 +559,9 @@ export default class Threads extends View {
     const g = this.git[key];
     const said = mine.map(telling).find(Boolean);
     const name = s.name.replace(/ \(deleted\)$/, "");
-    const title = said || (tab.named ? tab.name : null) || mine[0]?.program?.name || (s.tabs.length > 1 ? name + " · " + tab.name : name);
+    const rec = (shared(PARKED) ?? {})[tab.id];
+    const quiet = panesInTab(tab.id).find((p) => p.program?.agent);
+    const title = said || (tab.named ? tab.name : null) || rec?.title || mine[0]?.program?.name || quiet?.program?.name || (s.tabs.length > 1 ? name + " · " + tab.name : name);
     // Git can't answer for a deleted worktree: its path (…/worktrees/<repo>/<name>) still can.
     const fromPath = (s.folder ?? "").match(/\/worktrees\/([^/]+)\/[^/]+\/?$/)?.[1];
     const project = g?.project || fromPath || (g === undefined ? "" : name);
@@ -435,6 +579,10 @@ export default class Threads extends View {
     for (const a of roots) walk(a.address, 0);
     const programs = [];
     for (const a of roots) if (a.program?.icon && !programs.some((p) => p.key === a.program.key)) programs.push(a.program);
+    // Harnesses that report no status (agy) still name their program on the pane.
+    for (const p of panesInTab(tab.id)) if (p.program?.agent && p.program.icon && !programs.some((x) => x.key === p.program.key)) programs.push(p.program);
+    // A settled thread's stopped agents still show what they were.
+    for (const a of rec?.agents ?? []) if (a.program?.icon && !programs.some((p) => p.key === a.program.key)) programs.push(a.program);
     // The card speaks for its most urgent agent or sub-agent.
     const status = [tab.status, ...subs.map((x) => x.status)].reduce((m, s) => ((RANK[s] ?? 0) > (RANK[m] ?? 0) ? s : m), tab.status);
     return { id: tab.id, subs, s, tab, key, g, title, project, branch: lead?.branch ?? s.branch ?? null,
@@ -460,6 +608,7 @@ export default class Threads extends View {
       if (next) this.open(next);
     }
     run("tab.settle", { id: th.id });
+    this.toPark.push(th);
     if (this.hovered === th.id) this.hovered = null;
   }
 
@@ -737,6 +886,7 @@ export default class Threads extends View {
     const t = theme();
     const now = Date.now();
     const ps = panes();
+    PANES = ps;
     this.readSubs(now);
     const rows = agentTabs(spaces(), agents(), ps).filter((r) => this.isThread(r, keyOf(r.s, r.lead, ps)));
     this.track(rows, now);
