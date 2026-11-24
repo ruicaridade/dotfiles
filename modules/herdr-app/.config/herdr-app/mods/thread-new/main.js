@@ -47,6 +47,38 @@ async function git(cwd, args, on, timeout = 10000) {
   return { ok: r.code === 0, out: (r.stdout ?? "").trim(), err: (r.stderr || r.stdout || "").trim() };
 }
 
+const firstLine = (s) => (s || "").split("\n").find((l) => l.trim())?.replace(/^(fatal|error): /, "") ?? "";
+
+// The repo's default branch: what origin's HEAD points at (asked of origin, since the local
+// origin/HEAD is only set at clone time and goes stale; that when offline), else main or
+// master, else what the main checkout is on.
+async function defaultBranch(p) {
+  const remote = await git(p.path, ["ls-remote", "--symref", "origin", "HEAD"], p.machine, 15000).catch(() => ({ ok: false }));
+  const m = remote.ok ? remote.out.match(/^ref: refs\/heads\/(\S+)\s+HEAD/m) : null;
+  if (m) return m[1];
+  const sym = await git(p.path, ["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"], p.machine);
+  if (sym.ok && sym.out.startsWith("origin/")) return sym.out.slice(7);
+  for (const b of ["main", "master"]) if ((await git(p.path, ["show-ref", "--verify", "--quiet", "refs/heads/" + b], p.machine)).ok) return b;
+  const h = await git(p.path, ["rev-parse", "--abbrev-ref", "HEAD"], p.machine);
+  return h.ok && h.out !== "HEAD" ? h.out : null;
+}
+
+// Bring the default branch up to date with origin (fast-forward only) and return what to
+// branch from: the branch itself, or origin's copy when the local one can't fast-forward
+// (diverged, or its checkout has changes in the way).
+async function freshBase(p, def) {
+  if (!(await git(p.path, ["remote", "get-url", "origin"], p.machine)).ok) return def; // no remote: as it is
+  const f = await git(p.path, ["fetch", "origin", def], p.machine, 180000);
+  if (!f.ok) throw new Error("Couldn't fetch " + def + ": " + firstLine(f.err));
+  // Checked out somewhere (usually the main checkout): pull there. Otherwise move the branch.
+  const list = await git(p.path, ["worktree", "list", "--porcelain"], p.machine);
+  const at = (list.out.split("\n\n").find((b) => b.split("\n").includes("branch refs/heads/" + def)) ?? "").match(/^worktree (.+)$/m)?.[1];
+  const up = at
+    ? await git(at, ["pull", "--ff-only", "origin", def], p.machine, 180000)
+    : await git(p.path, ["fetch", "origin", def + ":" + def], p.machine, 180000);
+  return up.ok ? def : "origin/" + def;
+}
+
 // The repo a folder is in: its main checkout and name. null outside git.
 async function repoOf(folder, on) {
   const r = await git(folder, ["rev-parse", "--path-format=absolute", "--git-common-dir"], on, 5000);
@@ -125,8 +157,7 @@ export default class ThreadNew extends View {
     this.base[p.path] = null;
     cx.spawn(async (cx) => {
       try {
-        const r = await git(p.path, ["rev-parse", "--abbrev-ref", "HEAD"], p.machine);
-        this.base[p.path] = r.ok ? r.out : "";
+        this.base[p.path] = (await defaultBranch(p)) ?? "";
       } catch { this.base[p.path] = ""; }
       cx.notify();
     });
@@ -195,7 +226,18 @@ export default class ThreadNew extends View {
         }
         const path = userHome + "/.herdr/worktrees/" + p.name + "/" + slug(branch);
         const exists = (await git(p.path, ["show-ref", "--verify", "--quiet", "refs/heads/" + branch], p.machine)).ok;
-        const add = exists ? ["worktree", "add", path, branch] : ["worktree", "add", "-b", branch, path, "HEAD"];
+        let add = ["worktree", "add", path, branch];
+        if (!exists) {
+          // A new branch starts from the default branch, pulled first.
+          const def = this.base[p.path] || (await defaultBranch(p));
+          if (!def) throw new Error("Couldn't tell this repository's default branch.");
+          this.stage = "Pulling " + def + "…";
+          cx.notify();
+          const from = await freshBase(p, def);
+          this.stage = "Creating…";
+          cx.notify();
+          add = ["worktree", "add", "--no-track", "-b", branch, path, from];
+        }
         const r = await git(p.path, add, p.machine, 600000);
         if (!r.ok) throw new Error(r.err || "git worktree add failed.");
         p.used = Date.now();
@@ -207,6 +249,7 @@ export default class ThreadNew extends View {
       } catch (e) {
         this.error = String(e.message ?? e);
         this.busy = false;
+        this.stage = null;
         cx.notify();
       }
     });
@@ -232,7 +275,7 @@ export default class ThreadNew extends View {
     const t = theme();
     const p = this.projects[this.at];
     const label = (s) => div().flex_none().pt(4).text_size(11).font_medium().text_color(t.dim).child(s);
-    const base = p ? this.base[p.path] : null;
+    const base = p ? this.base[p.path] : null; // the default branch
     const where = p && this.text.trim() ? tilde(this.userHome + "/.herdr/worktrees/" + p.name + "/" + slug(this.text.trim()), this.userHome) : "";
     const row = (x, i) => {
       const on = i === this.at;
@@ -282,7 +325,7 @@ export default class ThreadNew extends View {
           .bg(t.solid).text_color(t.solid_foreground).font_medium().text_size(12.5)
           .when(this.busy || !p, (el) => el.opacity(0.5))
           .on_click((_e, cx) => this.create(cx))
-          .child(this.busy ? "Creating…" : "Create")))
+          .child(this.busy ? (this.stage ?? "Creating…") : "Create")))
       .child(div().flex_none().text_size(11).text_color(t.dim).child("↑↓ project · tab agent · ↵ create · right-click a project to forget it"));
   }
 }

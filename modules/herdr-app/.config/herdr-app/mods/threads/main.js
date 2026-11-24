@@ -529,8 +529,44 @@ export default class Threads extends View {
 
   // Stop an agent the way a person would (Ctrl+C twice), then SIGTERM if it's still there.
   // True if it's gone; `hard` when it took a signal (its terminal modes may be left set).
+  // What runs in a terminal: hc's report, or, when that has no foreground (a terminal Herdr
+  // kept across a core restart reports a stale pid and none), the processes themselves: its
+  // shell is the outermost one with its HC_TERMINAL_ID, and the tty's foreground job is the rest.
+  async inspect(address, on) {
+    let info;
+    try { info = JSON.parse((await hc(["get", address, "--json"])).stdout); } catch { return null; }
+    if (info.state && info.state !== "live") return null;
+    if (info.foreground?.pid) return info;
+    const script = [
+      'a=$1; s=',
+      'for d in /proc/[0-9]*; do',
+      '  grep -qzx "HC_TERMINAL_ID=$a" "$d/environ" 2>/dev/null || continue',
+      '  pp=$(sed "s/.*) //" "$d/stat" 2>/dev/null | cut -d" " -f2)',
+      '  grep -qzx "HC_TERMINAL_ID=$a" "/proc/$pp/environ" 2>/dev/null && continue',
+      '  s=${d#/proc/}; break',
+      'done',
+      '[ -n "$s" ] || exit 1',
+      'f=$(ps -o tpgid= -p "$s" | tr -d " ")',
+      'echo "$s"; echo "$f"; readlink "/proc/$f/cwd"; tr "\\0" "\\n" < "/proc/$f/cmdline"',
+    ].join("\n");
+    try {
+      const r = await exec("sh", ["-c", script, "sh", address], { on, timeout: 10000 });
+      const l = r.code === 0 ? r.stdout.split("\n") : [];
+      const shell = Number(l[0]), fg = Number(l[1]);
+      if (!shell || !(fg > 0)) return info;
+      return { ...info, pid: shell, foreground: { pid: fg, cwd: l[2] || null, argv: l.slice(3).filter(Boolean) } };
+    } catch { return info; }
+  }
+
   async stop(address, fgPid, on) {
-    const fgOf = async () => { try { return JSON.parse((await hc(["get", address, "--json"])).stdout).foreground?.pid; } catch { return null; } };
+    // hc's foreground pid when it reports one, else whether that process is still there.
+    const fgOf = async () => {
+      try {
+        const fg = JSON.parse((await hc(["get", address, "--json"])).stdout).foreground?.pid;
+        if (fg) return fg;
+        return (await exec("kill", ["-0", String(fgPid)], { on, timeout: 5000 })).code === 0 ? fgPid : null;
+      } catch { return null; }
+    };
     const wait = async (ms) => { for (let t = 0; t < ms; t += 250) { await new Promise((r) => this.cxTimer(250, r)); if ((await fgOf()) !== fgPid) return true; } return false; };
     await hc(["keys", address, "ctrl+c"]);
     await new Promise((r) => this.cxTimer(400, r));
@@ -545,11 +581,11 @@ export default class Threads extends View {
   async stopAgent(th) {
     const address = th.lead?.terminal;
     if (!address) return false;
-    let info;
-    try { info = JSON.parse((await hc(["get", address, "--json"])).stdout); } catch { return true; } // already gone
-    const fg = info.foreground;
-    if (!fg?.pid) return true;
     const on = th.s.machine ?? null;
+    const info = await this.inspect(address, on);
+    if (!info) return true; // already gone
+    const fg = info.foreground;
+    if (!fg?.pid || fg.pid === info.pid) return false; // nothing running over its shell: can't tell what to stop
     const stopped = await this.stop(address, fg.pid, on);
     // A signalled TUI can leave mouse or keyboard modes on in the shell it returns to.
     if (stopped.gone && stopped.hard && fg.pid !== info.pid) await hc(["send", address, "reset"]).catch(() => null);
@@ -563,8 +599,8 @@ export default class Threads extends View {
     // Every terminal of the tab running a known harness, whether or not it reports a status.
     const terms = panes().filter((p) => p.tab === th.id && p.terminal).map((p) => p.terminal);
     for (const address of terms) {
-      let info;
-      try { info = JSON.parse((await hc(["get", address, "--json"])).stdout); } catch { continue; }
+      const info = await this.inspect(address, on);
+      if (!info) continue;
       const fg = info.foreground;
       // Only an agent running under the pane's shell: one that is the terminal's own program
       // would take its pane (and maybe the tab) with it, so that one keeps running.
