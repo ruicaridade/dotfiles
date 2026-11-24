@@ -53,12 +53,31 @@ const SCOPES = ["branch", "work", "last"];
 const MISSING = /os error 2|No such file or directory/;
 // Diff rows a comment can sit on (not hunk headers or notes like "Binary file").
 const LINE = new Set(["+", "-", " "]);
+// Test files, which the file list hides until "Hide tests" (t) is turned off: test folders, then per-language names.
+const TEST_PATHS = [
+  /(^|\/)(tests?|__tests__|__snapshots__|__mocks__|specs?|e2e|testdata)\//,
+  /(^|\/)(test_[^/]*|[^/]*_test|conftest|tests)\.py$/,
+  /\.(test|spec|e2e-spec|e2e)\.[cm]?[jt]sx?$/,
+  /_test\.(go|exs|dart|rb|c|cc|cpp)$/, /_spec\.rb$/,
+  /[^/]Tests?\.(java|kt|scala|cs|swift|php)$/, /\.snap$/,
+];
+const isTest = (path) => TEST_PATHS.some((re) => re.test(path));
+// Where word wrap breaks a line of `cols` columns: after the last space in the line's second half, else at the edge.
+function wrapCuts(text, cols) {
+  const cuts = [];
+  for (let start = 0; text.length - start > cols;) {
+    const space = text.lastIndexOf(" ", start + cols - 1);
+    start = space >= start + cols / 2 ? space + 1 : start + cols;
+    cuts.push(start);
+  }
+  return cuts;
+}
 // The panel's keys, as the `?` card lists them.
 const KEYS = [
   ["f", "switch between files and diff"], ["j k  ↓ ↑", "move"], ["shift + move", "select lines"], ["] [", "next / previous hunk"], ["l h", "next / previous file"],
   ["g G", "top / bottom"], ["ctrl-d ctrl-u", "half a page"], ["c  Enter", "comment (edits a comment)"], ["C", "comment on the whole file"],
   ["d", "delete the comment"], ["a", "ask about the line or selection"], ["A", "ask about the whole diff"], ["s", "submit review"],
-  ["D D", "discard every comment"], ["v", "switch scope"], ["m", "commit message"], ["←", "to the files"], ["Enter  l", "in files: open the file"], ["Esc", "clear selection, close"], ["alt-h/j/k/l", "leave the panel"],
+  ["D D", "discard every comment"], ["v", "switch scope"], ["t", "hide / show test files"], ["w", "word wrap"], ["m", "commit message"], ["→", "to the files"], ["Enter  l", "in files: open the file"], ["Esc", "clear selection, close"], ["alt-h/j/k/l", "leave the panel"],
 ];
 // The code font: the terminal's (`font` in settings, JetBrains Mono when
 // unset), one size smaller than the terminal (`font_size`, 14 when unset);
@@ -86,7 +105,7 @@ function diffRows(lines, lang) {
     else row = { kind: "", text: line };
     row.hunk = hunk;
     const t = tokenize(row.text.replace(/\t/g, "    "), lang, state);
-    row.spans = t.spans; state = t.state;
+    row.spans = t.spans; row.full = t.spans.map((s) => s.text).join(""); state = t.state;
     return row;
   });
 }
@@ -95,19 +114,21 @@ export default class Changes extends View {
   init(_props, cx) {
     // Opened as the send dialog (ask.js): this copy is the dialog, nothing else.
     if (props()?.dialog) { this.dialog = Object.create(Dialog.prototype); this.dialog.init(_props, cx); return; }
-    this.files = []; this.rows = []; this.index = new Map(); this.items = []; this.sizes = []; this.diffWidth = 0; this.gutter = 30; this.message = "";
+    this.files = []; this.allFiles = []; this.rows = []; this.index = new Map(); this.items = []; this.sizes = []; this.diffWidth = 0; this.gutter = 30; this.message = "";
     this.comments = []; this.composer = null; this.handle = cx.focus_handle(); this.scroll = VirtualListScrollHandle.new();
     this.fontSize = codeSize(); this.row = rowOf(this.fontSize);
     this.scope = "work"; this.scopeInfo = null; this.choosingScope = false; this.ref = "HEAD"; this.range = ["HEAD"]; this.tree = true; this.draftId = null;
     // The source / target ref pickers: which one is open, the repo's refs, the search field.
     this.choosingRef = null; this.refList = null; this.refQuery = "";
-    // The file list's dragged height (null: fitted to the files) and the drag in progress.
-    this.drag = null; this.listH = null;
+    // The file column's dragged width (null: a share of the panel), its laid-out height, and the drag in progress.
+    this.drag = null; this.listW = null; this.colH = null;
     // Refreshes: the current one's number (older ones are dropped), the repo top per folder, and when the watcher may count gitdir changes again.
     this.gen = 0; this.tops = new Map(); this.quietUntil = 0;
     // Which part the keyboard walks ("diff" or "files", f switches; Tab is left to the app, which moves focus to the commit message) and the file under the files cursor.
     this.zone = "diff"; this.fileCursor = null; this.fileY = 0;
-    try { const h = Number(localStorage.getItem("listHeight")); if (h > 0) this.listH = h; } catch {}
+    try { const w = Number(localStorage.getItem("listWidth")); if (w > 0) this.listW = w; } catch {}
+    this.hideTests = true; this.wrap = false;
+    try { this.hideTests = localStorage.getItem("hideTests") !== "0"; this.wrap = localStorage.getItem("wrap") === "1"; } catch {}
     this.refSearch = InputState.new({ placeholder: "Search refs…" });
     this.refSearch.on("change", (_e, cx) => { this.refQuery = this.refSearch.value(); cx.notify(); });
     this.refSearch.on("submit", (_e, cx) => { const first = this.refMatches()[0]; if (this.choosingRef && first) this.setRef(this.choosingRef, first.name, cx); });
@@ -173,7 +194,7 @@ export default class Changes extends View {
     const { cwd, on, folder } = location(), context = key();
     if (this.loading && context === this.context && !force) { this.again = true; return; }
     if (context !== this.context) {
-      this.context = context; this.root = null; this.files = []; this.open = null; this.comments = []; this.composer = null;
+      this.context = context; this.root = null; this.files = []; this.allFiles = []; this.open = null; this.comments = []; this.composer = null;
       this.setLines([]); this.message = ""; this.input.set_value(""); this.error = null; this.note_ = null; this.watched = null; this.closed = false; this.limited = false; this.fileY = 0;
     }
     const gen = ++this.gen;
@@ -195,7 +216,7 @@ export default class Changes extends View {
             top = await toplevel(folder).catch(() => { throw e; });
           }
           if (stale()) return;
-          if (top.code !== 0) { this.root = null; this.files = []; this.setLines([]); this.open = null; this.error = "Not a git repository"; return; }
+          if (top.code !== 0) { this.root = null; this.files = []; this.allFiles = []; this.setLines([]); this.open = null; this.error = "Not a git repository"; return; }
           root = top.stdout.trim(); this.tops.set(topKey, root);
         }
         const git = (args) => exec("git", args, { cwd: root, on });
@@ -253,11 +274,11 @@ export default class Changes extends View {
         this.root = root; this.on = on; this.hasHead = hasHead; this.scope = scope; this.scopeInfo = info; this.ref = ref; this.range = range; this.tree = tree; this.draftId = draftId;
         // Switching scope or refs swaps the comment set; the others stay saved.
         if (changedSet) { this.comments = this.loadDrafts(draftId); this.composer = null; this.rebuild(); }
-        this.files = files; this.limited = changed.size > 1000; this.error = null;
+        this.allFiles = files; this.files = this.visible(files); this.limited = changed.size > 1000; this.error = null;
         this.watch(root, cx);
-        if (this.open && !files.some((f) => f.path === this.open)) { this.open = null; this.setLines([]); }
+        if (this.open && !this.files.some((f) => f.path === this.open)) { this.open = null; this.setLines([]); }
         // The first file's diff shows until you pick another.
-        if (!this.open && !this.closed && files.length) this.open = files[0].path;
+        if (!this.open && !this.closed && this.files.length) this.open = this.files[0].path;
         // The file list shows now; the open file's diff follows.
         cx.notify();
         if (this.open) {
@@ -267,7 +288,7 @@ export default class Changes extends View {
       } catch (e) {
         if (stale()) return;
         this.tops.clear();
-        this.root = null; this.files = []; this.setLines([]); this.open = null;
+        this.root = null; this.files = []; this.allFiles = []; this.setLines([]); this.open = null;
         this.error = MISSING.test(String(e)) ? `Folder not found: ${cwd}` : String(e);
       }
       finally {
@@ -420,7 +441,13 @@ export default class Changes extends View {
   // comments on the whole file come first. The comment being edited stays
   // in place as a live preview of what is typed in the box.
   rebuild() {
-    const items = this.rows.map((_r, i) => ({ key: `r:${i}`, kind: "row", i, height: this.row }));
+    // Wrapped rows grow a line of `lineH` for every break; the breaks are kept per row until the width changes.
+    const cols = this.wrapCols(), lineH = this.lineH();
+    for (const r of this.rows) {
+      if (!this.wrap || r.kind === "@") r.cuts = null;
+      else if (r.cutsFor !== cols || !r.cuts) { r.cuts = wrapCuts(r.full ?? r.text, cols); r.cutsFor = cols; }
+    }
+    const items = this.rows.map((r, i) => ({ key: `r:${i}`, kind: "row", i, height: this.row + (r.cuts?.length ?? 0) * lineH }));
     const under = new Map(), editing = this.composer?.editing ?? null;
     this.items = [];
     for (const c of this.comments) {
@@ -436,8 +463,20 @@ export default class Changes extends View {
     this.sizes = this.items.map((it) => it.height);
   }
 
+  // Word wrap: the columns of code that fit beside the gutter, and the height of each wrapped line.
+  wrapCols() { return Math.max(20, Math.floor((this.diffArea() - this.gutter - 16 - 2 - 20) / charOf(this.fontSize))); }
+  lineH() { return Math.round(this.fontSize * 1.45); }
+  setWrap(wrap, cx) {
+    this.wrap = wrap;
+    try { localStorage.setItem("wrap", wrap ? "1" : "0"); } catch {}
+    this.rebuild();
+    const i = this.cursorIndex();
+    if (i >= 0) this.scroll.scroll_to_item(i);
+    cx.notify();
+  }
+
   commentHeight(text) {
-    const cpl = Math.max(24, Math.floor(((this.size?.width ?? 368) - 90) / charOf(this.fontSize)));
+    const cpl = Math.max(24, Math.floor((this.diffArea() - 90) / charOf(this.fontSize)));
     const lines = text.split("\n").reduce((n, l) => n + Math.max(1, Math.ceil(l.length / cpl)), 0);
     return 44 + lines * Math.round(this.fontSize * 1.45);
   }
@@ -544,7 +583,7 @@ export default class Changes extends View {
   where(path) { return `${this.root}/${path}${this.on ? ` (on ${this.on})` : ""}`; }
   // A file's change in words, for a whole-file comment: "added, binary".
   describe(path) {
-    const f = this.files.find((f) => f.path === path);
+    const f = this.allFiles.find((f) => f.path === path);
     if (!f) return "no longer changed";
     const what = f.status === "A" ? "added" : f.status === "D" ? "deleted" : f.status === "U" ? "conflict" : "modified";
     return f.binary ? `${what}, binary` : f.add || f.del ? `${what}, +${f.add} −${f.del}` : what;
@@ -601,23 +640,28 @@ export default class Changes extends View {
   }
   // About as many rows as the diff shows at once.
   pageRows() {
-    const list = this.listHeight();
-    return Math.max(3, Math.floor(((this.size?.height ?? 600) - 42 - 38 - list - 53) / this.row) - 2);
+    return Math.max(3, Math.floor(((this.size?.height ?? 600) - 42 - 38 - 53) / this.row) - 2);
   }
 
-  // The file list's height: the one dragged on the divider (kept within the
-  // panel, leaving the diff some rows), else fitted to the files up to 200px.
-  listHeight() {
-    const fit = Math.min(200, Math.max(44, this.files.length * 28 + 12));
-    if (this.listH === null || this.listH === undefined) return fit;
-    const max = Math.max(44, (this.size?.height ?? 600) - 42 - 38 - 53 - 120);
-    return Math.round(Math.min(max, Math.max(44, this.listH)));
+  // The file list's height, as last laid out (estimated from the panel before that).
+  listHeight() { return Math.max(44, this.colH ?? (this.size?.height ?? 600) - 42 - 38 - 53); }
+  // The file column's width: the one dragged on the divider, else about a quarter of the
+  // panel. Either way the diff keeps most of it.
+  listWidth() {
+    const w = this.size?.width ?? 900, max = Math.max(140, Math.min(w * 0.4, w - 360));
+    const want = this.listW ?? Math.min(320, Math.max(220, w * 0.26));
+    return Math.round(Math.min(max, Math.max(140, want)));
   }
-  // Dragging the divider under the file list resizes it; the height is remembered across reloads.
+  // The diff's width, beside the file column and its divider.
+  diffArea() { return (this.size?.width ?? 900) - this.listWidth() - 7; }
+  // Dragging the divider beside the file column resizes it; the width is remembered across reloads.
   endDrag(cx) {
     if (!this.drag) return;
     const kind = this.drag.kind; this.drag = null;
-    if (kind === "divider") try { if (this.listH === null) localStorage.removeItem("listHeight"); else localStorage.setItem("listHeight", String(this.listH)); } catch {}
+    if (kind === "divider") {
+      try { if (this.listW === null) localStorage.removeItem("listWidth"); else localStorage.setItem("listWidth", String(this.listW)); } catch {}
+      this.rebuild();
+    }
     cx.notify();
   }
 
@@ -703,6 +747,8 @@ export default class Changes extends View {
     }
     if (e.key_char === "?" || raw === "?" || (shift && k === "/")) { this.keysHelp = !this.keysHelp; return true; }
     if (k === "f" && !shift) { this.setZone(this.zone === "files" ? "diff" : "files"); return true; }
+    if (k === "t" && !shift) { this.setHideTests(!this.hideTests, cx); return true; }
+    if (k === "w" && !shift) { this.setWrap(!this.wrap, cx); return true; }
     if (this.zone === "files") return this.filesKey(k, shift, cx);
     switch (k) {
       case "j": case "down": this.move(1, shift); return true;
@@ -724,7 +770,7 @@ export default class Changes extends View {
       case "s": this.submit(cx); return true;
       case "v": this.cycleScope(cx); return true;
       case "m": this.input.focus(); return true;
-      case "left": this.setZone("files"); return true;
+      case "right": this.setZone("files"); return true;
       case "escape":
         if (this.keysHelp) this.keysHelp = false;
         else if (this.anchor) this.anchor = null;
@@ -732,6 +778,18 @@ export default class Changes extends View {
         return true;
     }
     return false;
+  }
+
+  // The files the list shows: every changed file, or all but the tests.
+  visible(files) { return this.hideTests ? files.filter((f) => !isTest(f.path)) : files; }
+  // t, or the "Hide tests" toggle: an open test file that gets hidden gives way to the first file shown.
+  setHideTests(hide, cx) {
+    this.hideTests = hide;
+    try { localStorage.setItem("hideTests", hide ? "1" : "0"); } catch {}
+    this.files = this.visible(this.allFiles);
+    if (this.open && !this.files.some((f) => f.path === this.open)) { this.open = null; this.closed = false; this.setLines([]); }
+    if (!this.open && !this.closed && this.files.length) this.pick(this.files[0].path, cx);
+    else { this.revealFile(); cx.notify(); }
   }
 
   // f: the keyboard walks the file list or the diff.
@@ -874,8 +932,8 @@ export default class Changes extends View {
         .child(v_flex().id(`ref-${which}-list`).max_h(320).overflow_y_scrollbar().children(list)));
   }
 
-  // A panel under 600px has no room for a column beside the diff.
-  narrow() { return (this.size?.width ?? 368) < 600; }
+  // A diff under 560px has no room for the comment card floating over it.
+  narrow() { return this.diffArea() < 560; }
 
   // The comment box: title, the lines it is about, the textarea, Add / Cancel / Delete.
   // `docked`: a strip under the diff (narrow panel) instead of a 300px card over its top-right.
@@ -909,7 +967,7 @@ export default class Changes extends View {
   }
 
   item(it, t, colors, target, commented, nav) {
-    const width = (this.size?.width ?? 368) - 60, here = nav.key === it.key;
+    const width = this.diffArea() - 60, here = nav.key === it.key;
     if (it.kind === "comment") {
       const span = it.whole ? "whole file" : it.from === it.to ? `line ${this.rows[it.from].number}` : `lines ${this.rows[it.from].number}–${this.rows[it.to].number}`;
       const label = it.live ? `Comment · ${span} · editing` : here ? `Comment · ${span} · Enter to edit · d to delete` : `Comment · ${span} · click to edit`;
@@ -927,6 +985,8 @@ export default class Changes extends View {
     // Added and removed rows get a clear tint (stronger when targeted), a
     // colored sign column and a tinted gutter, like a GitHub diff.
     const tint = kind === "+" ? colors.added : kind === "-" ? colors.removed : null;
+    const cuts = this.rows[i].cuts;
+    if (cuts?.length) return this.wrappedRow(it, t, colors, tint, on, here, mark);
     return h_flex().w_full().h(this.row).flex_none().cursor_pointer().border_l(2).border_color(on || here ? t.accent : mark ? t.accent + "66" : NONE)
       .when(Boolean(tint), (e) => e.bg(tint + (on ? "5c" : "30")))
       .when(!tint && on, (e) => e.bg(t.selected))
@@ -936,25 +996,67 @@ export default class Changes extends View {
       .child(h_flex().flex_1().min_w(0).whitespace_nowrap().children(spans.map((s) => s.cls ? div().text_color(colors[s.cls] ?? t.foreground).child(s.text) : div().child(s.text))));
   }
 
+  // The "Hide tests" toggle over the file list, with how many test files it hides.
+  testsToggle(t) {
+    const hidden = this.allFiles.length - this.files.length;
+    const toggle = (id, label, on, tip, action) => h_flex().id(id).h(22).px(6).gap(6).items_center().rounded(6).cursor_pointer().hover((s) => s.bg(t.hover)).tooltip(tip)
+      .on_click(action)
+      .child(div().size(13).flex_none().flex().items_center().justify_center().rounded(3).border_1().border_color(on ? t.accent : t.input).when(on, (e) => e.bg(t.accent))
+        .when(on, (e) => e.child(svg("mods/reviewer/check.svg").size(10).text_color(t.accent_foreground))))
+      .child(div().text_size(12).text_color(on ? t.foreground : t.muted).child(label));
+    return h_flex().flex_none().h(34).px(8).gap(2).items_center().border_b(1).border_color(t.border)
+      .child(toggle("hide-tests", "Hide tests", this.hideTests, "Hide test files (t)", (_e, cx) => this.setHideTests(!this.hideTests, cx)))
+      .child(toggle("wrap", "Wrap", this.wrap, "Wrap long lines in the diff (w)", (_e, cx) => this.setWrap(!this.wrap, cx)))
+      .child(div().flex_1())
+      .when(this.hideTests && hidden > 0, (e) => e.child(div().pr(4).text_size(11).text_color(t.dim).child(`${hidden} hidden`)));
+  }
+
+  // A row that word wrap breaks: the number and sign stay on its first line, the code continues under it.
+  wrappedRow(it, t, colors, tint, on, here, mark) {
+    const { kind, number, spans, cuts } = this.rows[it.i], lineH = this.lineH(), pad = (this.row - lineH) / 2;
+    const lines = [];
+    let line = [], pos = 0, next = 0;
+    for (const s of spans) {
+      for (let off = 0; off < s.text.length;) {
+        const limit = next < cuts.length ? cuts[next] : Infinity, take = Math.min(s.text.length - off, limit - pos);
+        if (take > 0) { line.push({ text: s.text.slice(off, off + take), cls: s.cls }); off += take; pos += take; }
+        if (pos === limit) { lines.push(line); line = []; next++; }
+      }
+    }
+    lines.push(line);
+    return h_flex().w_full().h(it.height).flex_none().items_start().cursor_pointer().border_l(2).border_color(on || here ? t.accent : mark ? t.accent + "66" : NONE)
+      .when(Boolean(tint), (e) => e.bg(tint + (on ? "5c" : "30")))
+      .when(!tint && on, (e) => e.bg(t.selected))
+      .child(div().w(this.gutter).h_full().flex_none().pr(4).when(Boolean(tint), (e) => e.bg(tint + "26")).when(here, (e) => e.bg(t.accent + "66").font_bold())
+        .text_color(on || here ? t.foreground : tint ? t.foreground + "cc" : t.dim).child(div().h(this.row).flex().items_center().justify_end().child(number === undefined ? "" : String(number))))
+      .child(div().w(16).h(this.row).flex_none().flex().items_center().justify_center().font_bold().text_color(tint ?? NONE).child(kind === "+" ? "+" : kind === "-" ? "−" : " "))
+      .child(v_flex().flex_1().min_w(0).py(pad).children(lines.map((l) => h_flex().h(lineH).items_center().whitespace_nowrap()
+        .children(l.map((s) => s.cls ? div().text_color(colors[s.cls] ?? t.foreground).child(s.text) : div().child(s.text))))));
+  }
+
   // The file list. A branch can change a thousand files, and building every row on every
   // render made the panel crawl, so only the rows in view are built. It scrolls itself
   // (wheel and its own scrollbar): a virtual list would also build only those rows, but its
   // rows can't hover, show tooltips or take clicks of their own. `fileY` is the scroll, in px.
   fileList(t, perFile, fileNav) {
     const H = this.listHeight(), view = H - 12, n = this.files.length, total = n * 28, max = Math.max(0, total - view);
-    if (!n) return div().id("changes-list").flex_none().h(H).p(8).text_color(t.dim).child(this.error || (this.loading ? "Loading changes…" : this.root ? (this.scope === "work" ? "No uncommitted changes" : "No changes") : "No folder"));
+    const measure = (size, cx) => { if (size.height !== this.colH) { this.colH = size.height; cx.notify(); } };
+    if (!n) return div().id("changes-list").flex_1().min_h(0).p(8).whitespace_normal().text_color(t.dim).on_size_change(measure).child(this.error || (this.loading ? "Loading changes…" : !this.root ? "No folder" : this.allFiles.length ? "Only test files changed" : this.scope === "work" ? "No uncommitted changes" : "No changes"));
     this.fileY = Math.min(max, Math.max(0, this.fileY || 0));
     const first = Math.floor(this.fileY / 28), last = Math.min(n, Math.ceil((this.fileY + view) / 28));
     const rows = this.files.slice(first, last).map((f) => {
       const parts = f.path.split("/"), name = parts.pop(), k = perFile[f.path];
+      // The name comes first and keeps the room the column has left; its folder follows, dimmed, and truncates first.
+      const stats = [f.add, f.del].filter((x) => x > 0), statsW = stats.reduce((w, x) => w + (String(x).length + 1) * 6.6 + 8, 0);
+      const nameMax = Math.max(48, this.listWidth() - 24 - 22 - (k ? 34 : 26) - statsW);
       const here = fileNav && this.fileCursor === f.path;
-      return h_flex().id(`change-${f.path}`).h(28).flex_none().pl(8).pr(2).gap(8).items_center().rounded(7).border_1().border_color(here ? t.accent : NONE).cursor_pointer().when(this.open === f.path, (e) => e.bg(t.selected)).hover((s) => s.bg(t.hover))
+      return h_flex().id(`change-${f.path}`).h(28).flex_none().pl(8).pr(2).gap(8).items_center().rounded(7).border_1().border_color(here ? t.accent : NONE).cursor_pointer().when(this.open === f.path, (e) => e.bg(t.selected)).hover((s) => s.bg(t.hover)).tooltip(f.path)
         .on_click((_e, cx) => { this.fileCursor = f.path; this.pick(f.path, cx); })
         .child(div().w(14).flex_none().text_size(11).text_color(f.status === "A" ? t.ansi2 : f.status === "D" ? t.ansi1 : f.status === "U" ? t.ansi1 : t.blocked).child(f.status))
-        .child(h_flex().flex_1().min_w(0).child(div().text_color(t.dim).truncate().child(parts.length ? parts.join("/") + "/" : "")).child(div().max_w(260).min_w(0).truncate().child(name)))
+        .child(h_flex().flex_1().min_w(0).child(div().flex_none().max_w(nameMax).truncate().child(name)).when(parts.length > 0, (e) => e.child(div().min_w(0).pl(6).text_size(11).text_color(t.dim).truncate().child(parts.join("/")))))
         .when(f.add > 0, (e) => e.child(div().flex_none().text_size(11).text_color(t.ansi2).child(`+${f.add}`))).when(f.del > 0, (e) => e.child(div().flex_none().text_size(11).text_color(t.ansi1).child(`−${f.del}`)))
         // One speech bubble: the draft count when there are drafts, and a click comments on the whole file.
-        .child(h_flex().id(`comment-file-${f.path}`).w(26).h(18).flex_none().gap(3).items_center().justify_center().rounded(4).cursor_pointer()
+        .child(h_flex().id(`comment-file-${f.path}`).w(k ? 26 : 18).h(18).flex_none().gap(3).items_center().justify_center().rounded(4).cursor_pointer()
           .when(Boolean(k), (e) => e.bg(t.accent + "33").text_size(10).text_color(t.foreground)).when(!k, (e) => e.text_color(t.muted))
           .hover((s) => s.bg(k ? t.accent + "55" : t.hover).text_color(t.foreground))
           .tooltip(k ? `${k} draft comment${k > 1 ? "s" : ""} · click to comment on the whole file` : "Comment on the whole file")
@@ -963,7 +1065,7 @@ export default class Changes extends View {
     });
     // The scrollbar: a thumb sized by how much of the list is in view, dragged like the divider.
     const thumbH = max > 0 ? Math.max(24, Math.round(view * view / total)) : 0, thumbTop = 6 + (max > 0 ? Math.round((view - thumbH) * this.fileY / max) : 0);
-    return div().id("changes-list").flex_none().h(H).p(6).relative().overflow_hidden()
+    return div().id("changes-list").flex_1().min_h(0).p(6).relative().overflow_hidden().on_size_change(measure)
       .on_scroll_wheel((e, cx) => {
         cx.stop_propagation();
         const y = Math.min(max, Math.max(0, this.fileY - (e.delta?.y ?? 0)));
@@ -1004,7 +1106,7 @@ export default class Changes extends View {
       .on_mouse_move((e, cx) => {
         if (!this.drag) return;
         if (this.drag.kind === "thumb") this.fileY = this.drag.from + (e.position.y - this.drag.y) * this.drag.ratio;
-        else this.listH = this.drag.h + (e.position.y - this.drag.y);
+        else this.listW = this.drag.w - (e.position.x - this.drag.x);
         cx.notify();
       })
       .on_mouse_up("left", (_e, cx) => this.endDrag(cx))
@@ -1026,20 +1128,11 @@ export default class Changes extends View {
       .when(Boolean(this.root) && this.hasHead, (e) => e.child(h_flex().h(38).flex_none().px(14).gap(6).items_center().border_b(1).border_color(t.border)
         .child(this.scopePicker(t))
         .when(this.scope === "branch", (e) => e.child(this.refPicker(t, "source")).child(div().flex_none().text_size(12).text_color(t.dim).child("→")).child(this.refPicker(t, "target")))))
-      .child(this.fileList(t, perFile, fileNav))
-      // The divider: drag to resize the file list, double-click to fit it to the files again.
-      .child(div().id("list-divider").h(7).flex_none().flex().flex_col().justify_center().cursor_row_resize().hover((s) => s.bg(t.hover)).tooltip("Drag to resize · double-click to fit")
-        .on_mouse_down("left", (e, cx) => {
-          cx.stop_propagation();
-          if (e.click_count >= 2) { this.listH = null; this.drag = { kind: "divider" }; this.endDrag(cx); return; }
-          this.drag = { kind: "divider", y: e.position.y, h: this.listHeight() }; this.listH = this.drag.h; cx.notify();
-        })
-        .child(div().w_full().h(this.drag?.kind === "divider" ? 2 : 1).bg(this.drag?.kind === "divider" ? t.accent : t.border)))
-      .when(this.limited, el => el.child(div().px(12).py(4).text_size(11).text_color(t.dim).child("Showing the first 1,000 changed files")))
-      .child(h_flex().flex_1().min_h(0).items_stretch()
+      // The diff, and the file list in a column on its right.
+      .child(h_flex().flex_1().min_h(0).items_stretch().child(h_flex().flex_1().min_w(0).min_h(0).items_stretch()
         .child(div().flex_1().min_w(0).min_h(0).relative().font_family(codeFont()).text_size(this.fontSize)
         .child(div().id("changes-diff-x").size_full().overflow_x_scrollbar()
-          .child(div().w_full().min_w(this.diffWidth).h_full().child(v_virtual_list("changes-diff", this.items.length, this.sizes.length ? this.sizes : this.row, (i) => this.items[i].key,
+          .child(div().w_full().min_w(this.wrap ? 0 : this.diffWidth).h_full().child(v_virtual_list("changes-diff", this.items.length, this.sizes.length ? this.sizes : this.row, (i) => this.items[i].key,
             (range) => this.items.slice(range.start, range.end).map((it) => this.item(it, t, colors, target, commented, nav))).size_full().track_scroll(this.scroll)
             .on_item_click((k, cx) => {
               // The keyboard picks up where the mouse was.
@@ -1055,6 +1148,18 @@ export default class Changes extends View {
         .when(this.keysHelp && !this.composer, (e) => e.child(this.keysCard(t))))
         // The comment box, a card floating over the top-right of the diff while it is open (a strip below it on a narrow panel).
         .when(Boolean(this.composer) && !this.narrow(), (e) => e.child(this.box(t, target, false))))
+        // The divider: drag to resize the file column, double-click to reset it.
+        .child(div().id("list-divider").w(7).flex_none().flex().justify_center().cursor_col_resize().hover((s) => s.bg(t.hover)).tooltip("Drag to resize · double-click to reset")
+          .on_mouse_down("left", (e, cx) => {
+            cx.stop_propagation();
+            if (e.click_count >= 2) { this.listW = null; this.drag = { kind: "divider" }; this.endDrag(cx); return; }
+            this.drag = { kind: "divider", x: e.position.x, w: this.listWidth() }; this.listW = this.drag.w; cx.notify();
+          })
+          .child(div().h_full().w(this.drag?.kind === "divider" ? 2 : 1).bg(this.drag?.kind === "divider" ? t.accent : t.border)))
+        .child(v_flex().w(this.listWidth()).flex_none().min_h(0)
+          .child(this.testsToggle(t))
+          .when(this.limited, (el) => el.child(div().px(12).py(4).text_size(11).text_color(t.dim).whitespace_normal().child("Showing the first 1,000 changed files")))
+          .child(this.fileList(t, perFile, fileNav))))
       // Narrow panel: the comment box is a strip under the diff instead of a column beside it.
       .when(Boolean(this.composer) && this.narrow(), (e) => e.child(this.box(t, target, true)))
       .when(Boolean(this.note_), (e) => e.child(div().px(10).pb(8).text_size(11).text_color(t.ansi1).child(this.note_)))
@@ -1066,7 +1171,7 @@ export default class Changes extends View {
   pick(path, cx) {
     this.open = this.open === path ? null : path; this.setLines([]); this.note_ = null;
     this.closed = !this.open; this.cursor = null; this.anchor = null; this.wantFirst = Boolean(this.open);
-    if (this.open) this.fileCursor = path;
+    if (this.open) { this.fileCursor = path; this.revealFile(); }
     const context = this.context;
     if (this.open) cx.spawn(async (cx) => {
       try { await this.load(path, context); }
