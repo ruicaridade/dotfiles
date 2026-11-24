@@ -3,11 +3,15 @@
 bun = "latest"
 claude = { version = "latest", minimum_release_age = "0s", lazy = true, auto_update = "4h" }
 codex = { version = "latest", minimum_release_age = "0s", lazy = true, auto_update = "4h" }
+copilot = { version = "latest", minimum_release_age = "0s", lazy = true, auto_update = "4h" }
+crush = { version = "latest", minimum_release_age = "0s", lazy = true, auto_update = "4h" }
 flux2 = "2.9.6"
 gh = { version = "latest", minimum_release_age = "0s", lazy = true }
+"github:can1357/oh-my-pi" = "latest"
 go = "latest"
 "go:golang.org/x/tools/gopls" = "latest"
 helm = "3.19"
+pi = { version = "latest", minimum_release_age = "0s", lazy = true, auto_update = "4h" }
 poetry = "latest"
 uv = "latest"
 
